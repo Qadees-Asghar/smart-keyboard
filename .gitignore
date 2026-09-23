@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+
+# Downloaded word lists and books the dictionary is built from.
+# They are large and can always be fetched again by the script.
+tools/.cache/
+
+# Visual Studio and Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Test results
+TestResults/
+*.trx

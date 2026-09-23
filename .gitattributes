@@ -1,0 +1,10 @@
+# Keep line endings consistent whatever machine checks this out.
+* text=auto eol=lf
+
+# Batch files must keep Windows line endings or cmd can mis-read them.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.ttf binary
+*.png binary
+*.ico binary
