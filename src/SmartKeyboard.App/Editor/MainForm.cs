@@ -29,6 +29,10 @@ public class MainForm : Form
     private string _undoCorrected = string.Empty;
     private int _undoStart = -1;
 
+    // True when the word to put back sits somewhere behind the caret rather
+    // than right before it, so undoing must leave the caret alone.
+    private bool _undoKeepsCaret;
+
     public MainForm(AppServices services)
     {
         _services = services;
@@ -523,14 +527,26 @@ public class MainForm : Form
             return;
         }
 
-        AutocorrectResult result = autocorrect.Check(typed, IsSentenceStart(start));
+        // The word before lets the sentence help pick the fix. At the start of
+        // a sentence there is nothing to go on, so none is passed.
+        bool sentenceStart = IsSentenceStart(start);
         string? previousWord = WordScanner.GetPreviousWord(_textBox.Text, start);
+
+        AutocorrectResult result = autocorrect.Check(
+            typed, sentenceStart, sentenceStart ? null : previousWord);
 
         if (!result.Changed)
         {
             // Nothing was changed, so what the user typed is what they meant.
             _services.Learning.RecordWord(typed, previousWord);
-            ForgetUndo();
+
+            // This word is fine, and it is the right-hand neighbour the word
+            // before it was waiting for. That one may have been a mixup.
+            if (!TryFixEarlierWord(start, typed))
+            {
+                ForgetUndo();
+            }
+
             return;
         }
 
@@ -543,8 +559,75 @@ public class MainForm : Form
         _undoOriginal = result.Original;
         _undoCorrected = result.Corrected;
         _undoStart = start;
+        _undoKeepsCaret = false;
 
         _statusLabel.Text = $"Autocorrected {result.Original} to {result.Corrected}. Ctrl+Z puts it back.";
+    }
+
+    // Looks again at the word before the one just finished, now that both its
+    // neighbours are known, and swaps it when it was a mixup such as "form"
+    // for "from". The caret stays where it was. Ctrl+Z puts it back, the same
+    // as any other correction. Returns true when a word was swapped.
+    // Time O(L) over the text walked back through.
+    private bool TryFixEarlierWord(int wordStart, string word)
+    {
+        RealWordChecker checker = _services.RealWords;
+        if (!checker.Enabled)
+        {
+            return false;
+        }
+
+        string text = _textBox.Text;
+
+        // Step back over the gap to the end of the earlier word. A full stop
+        // in between means it belongs to another sentence.
+        int index = wordStart - 1;
+        while (index >= 0 && !WordScanner.IsWordChar(text[index]))
+        {
+            if (WordScanner.IsSentenceEnd(text[index]) || char.IsDigit(text[index]))
+            {
+                return false;
+            }
+
+            index--;
+        }
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        int earlierEnd = index + 1;
+        int earlierStart = WordScanner.GetCurrentWordStart(text, earlierEnd);
+        string earlier = text.Substring(earlierStart, earlierEnd - earlierStart);
+
+        if (!RealWordChecker.IsConfusable(earlier))
+        {
+            return false;
+        }
+
+        string? before = WordScanner.GetPreviousWord(text, earlierStart);
+        AutocorrectResult fix = checker.Check(before, earlier, word);
+
+        if (!fix.Changed)
+        {
+            return false;
+        }
+
+        int caret = _textBox.SelectionStart;
+
+        _textBox.Select(earlierStart, earlier.Length);
+        _textBox.SelectedText = fix.Corrected;
+        _textBox.SelectionStart = caret + fix.Corrected.Length - earlier.Length;
+        _textBox.SelectionLength = 0;
+
+        _undoOriginal = fix.Original;
+        _undoCorrected = fix.Corrected;
+        _undoStart = earlierStart;
+        _undoKeepsCaret = true;
+
+        _statusLabel.Text = $"Changed {fix.Original} to {fix.Corrected}. Ctrl+Z puts it back.";
+        return true;
     }
 
     // Puts back the word autocorrect changed. Returns false when there is
@@ -566,7 +649,22 @@ public class MainForm : Form
             return false;
         }
 
-        ReplaceRange(_undoStart, _undoCorrected.Length, _undoOriginal);
+        if (_undoKeepsCaret)
+        {
+            // The swapped word sits behind the caret, not right before it,
+            // so the caret stays where the user left it.
+            int caret = _textBox.SelectionStart;
+
+            _textBox.Select(_undoStart, _undoCorrected.Length);
+            _textBox.SelectedText = _undoOriginal;
+            _textBox.SelectionStart = caret + _undoOriginal.Length - _undoCorrected.Length;
+            _textBox.SelectionLength = 0;
+        }
+        else
+        {
+            ReplaceRange(_undoStart, _undoCorrected.Length, _undoOriginal);
+        }
+
         _statusLabel.Text = $"Put {_undoOriginal} back. " + BuildStatusText();
 
         ForgetUndo();
@@ -578,6 +676,7 @@ public class MainForm : Form
     private void ForgetUndo()
     {
         _undoStart = -1;
+        _undoKeepsCaret = false;
         _undoOriginal = string.Empty;
         _undoCorrected = string.Empty;
     }

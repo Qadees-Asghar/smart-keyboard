@@ -376,13 +376,13 @@ public class SystemWideController : IDisposable
     {
         _services.Learning.RecordWord(e.Word, e.PreviousWord);
 
-        // A word we did not watch from its first letter must not be
-        // replaced. What is on screen may be longer than what we counted, so
-        // deleting our count would eat letters that belong to something else
-        // and leave wreckage like "hehello".
-        if (_services.Settings.SystemWideAutocorrect && e.StartWasKnown)
+        // A word we did not watch from its first letter may be the tail of a
+        // longer one, and deleting our count would leave wreckage like
+        // "hehello". It is still fixed, but only once the app has shown us
+        // that the word on screen really is whole.
+        if (_services.Settings.SystemWideAutocorrect)
         {
-            TryAutocorrect(e.Word, e.Separator, e.PreviousWord is null);
+            TryAutocorrect(e.Word, e.Separator, e.PreviousWord, e.Previous, mustConfirm: !e.StartWasKnown);
         }
     }
 
@@ -408,7 +408,18 @@ public class SystemWideController : IDisposable
     // dropped. AcceptWord guards itself the same way, by prefix.
     //
     // Time O(1) here, the real work is on the background thread.
-    private void TryAutocorrect(string word, char separator, bool isSentenceStart)
+    //
+    // mustConfirm is set for the first word after a click or a window change,
+    // whose start we did not see. That word is only replaced if the app
+    // reports that the text before the caret is exactly the word and its
+    // separator, with a word boundary in front.
+    //
+    // When the word itself is fine, the word BEFORE it gets a second look,
+    // now that both its neighbours are known: "email form the" is fixed to
+    // "email from the" as "the" is finished. previous is that word exactly
+    // as it sits on screen, or null when we cannot vouch for it.
+    private void TryAutocorrect(
+        string word, char separator, string? previousWord, FinishedWord? previous, bool mustConfirm)
     {
         AutocorrectEngine? autocorrect = _services.Autocorrect;
         if (autocorrect is null)
@@ -422,8 +433,24 @@ public class SystemWideController : IDisposable
 
         Task.Run(async () =>
         {
-            AutocorrectResult result = autocorrect.Check(word, isSentenceStart);
-            if (!result.Changed)
+            AutocorrectResult result = autocorrect.Check(word, previousWord is null, previousWord);
+
+            // What is on screen now, and what it should become. A typo in
+            // this word comes first; only a word that needed no fixing lets
+            // the word before it be looked at again.
+            string from;
+            string to;
+
+            if (result.Changed)
+            {
+                from = word + separator;
+                to = result.Corrected + separator;
+            }
+            else if (!mustConfirm && TryRealWordFix(previous, word, separator, out from, out to))
+            {
+                // The earlier word is being swapped. This one is untouched.
+            }
+            else
             {
                 return;
             }
@@ -469,21 +496,28 @@ public class SystemWideController : IDisposable
                     return;
                 }
 
-                // Delete the word and the separator, then type the fixed word
-                // and put the separator back, so the sentence reads the same.
-                // Only the letters that differ are actually touched.
-                TextInjector.InjectionResult sent =
-                    TextInjector.Replace(word + separator, result.Corrected + separator);
+                // Asked while the person's keys are held, so the caret is not
+                // moving under the question.
+                if (mustConfirm && !IsWholeWordBeforeCaret(word + separator))
+                {
+                    return;
+                }
+
+                // Delete back to the start of what changes, then type the rest
+                // back in, separators included, so the sentence reads the
+                // same. Only the letters that differ are actually touched.
+                TextInjector.InjectionResult sent = TextInjector.Replace(from, to);
 
                 Log(sent);
 
                 // The tracker is moved on before the held keys are replayed,
-                // so they are followed from what is really on screen.
-                if (sent.Ok)
+                // so they are followed from what is really on screen. A swap
+                // of the earlier word leaves this one exactly as it was.
+                if (sent.Ok && result.Changed)
                 {
-                    _tracker.AcceptWord(result.Corrected);
+                    _tracker.CorrectLastWord(result.Corrected);
                 }
-                else
+                else if (!sent.Ok)
                 {
                     ReportTypingBlocked();
                 }
@@ -493,6 +527,59 @@ public class SystemWideController : IDisposable
                 _hook.Gate.End(ReplayHeld);
             }
         });
+    }
+
+    // Asks whether the word before this one was the wrong real word, now
+    // that the words on both sides of it are known. When it was, gives the
+    // text to replace, from the start of that word up to the caret, and what
+    // to put there instead. Time O(1), a few lookups.
+    private bool TryRealWordFix(
+        FinishedWord? previous, string word, char separator, out string from, out string to)
+    {
+        from = string.Empty;
+        to = string.Empty;
+
+        RealWordChecker checker = _services.RealWords;
+
+        // Only a word we watched from its first letter, and whose record
+        // still matches the screen letter for letter, can be gone back over.
+        if (!checker.Enabled || previous is null || !previous.StartKnown
+            || !RealWordChecker.IsConfusable(previous.Typed))
+        {
+            return false;
+        }
+
+        AutocorrectResult fix = checker.Check(previous.Before, previous.Typed, word);
+        if (!fix.Changed)
+        {
+            return false;
+        }
+
+        from = previous.Typed + previous.Separator + word + separator;
+        to = fix.Corrected + previous.Separator + word + separator;
+        return true;
+    }
+
+    // Asks the app what is before the caret, and marks the word start as
+    // known if that proves the word being typed is whole. Background threads
+    // only. Time: one short, capped question to the other app.
+    private bool ConfirmWordStart(string prefix, int version)
+    {
+        string? before = CaretTextReader.ReadBeforeCaret(prefix.Length + 1);
+
+        return CaretTextCheck.ConfirmsPrefix(before, prefix)
+            && _tracker.TryConfirmWordStart(version);
+    }
+
+    // True when the app shows exactly this text just before the caret, with a
+    // word boundary or the start of the text in front of it. Background
+    // threads only. Time: one short, capped question to the other app.
+    private static bool IsWholeWordBeforeCaret(string expected)
+    {
+        int requested = expected.Length + 1;
+        string? before = CaretTextReader.ReadBeforeCaret(requested);
+
+        return CaretTextCheck.ConfirmsWord(before, expected, requested);
     }
 
     // Asks for suggestions away from the hook thread, then shows them on the
@@ -511,6 +598,7 @@ public class SystemWideController : IDisposable
         // Read here, on the hook thread, where it still describes the word
         // being typed rather than whatever comes after it.
         bool wordStartKnown = _tracker.IsWordStartKnown;
+        int version = _tracker.Version;
 
         int id = System.Threading.Interlocked.Increment(ref _lookupId);
 
@@ -519,6 +607,16 @@ public class SystemWideController : IDisposable
             CaretLocator.TextTarget target = CaretLocator.DescribeTarget();
             bool takesText = TextInputClassifier.TakesText(
                 target.HasCaret, target.HasFocus, target.ControlClass);
+
+            // The first word after a click or a change of window: we did not
+            // see where it starts, so ask the app. If it shows a word
+            // boundary right before the letters we followed, the word is
+            // whole, and from here on it is treated exactly like any other,
+            // so it can be completed now and corrected when it ends.
+            if (takesText && !wordStartKnown && ConfirmWordStart(prefix, version))
+            {
+                wordStartKnown = true;
+            }
 
             SuggestionPolicy.Refusal refusal =
                 SuggestionPolicy.CheckCompletions(prefix, takesText, wordStartKnown);
@@ -764,7 +862,7 @@ public class SystemWideController : IDisposable
         // straight away also bumps its version, which cancels any correction
         // that was already in flight for the word being replaced.
         _services.Learning.RecordWord(word, previous);
-        _tracker.AcceptWord(word);
+        _tracker.AcceptWord(word, replacement);
         HidePopup();
 
         Task.Run(() =>
@@ -802,15 +900,16 @@ public class SystemWideController : IDisposable
     // Replaces a word in the app in front, keeping the person's own typing
     // out of the middle of it.
     //
-    // Sending backspaces and letters takes roughly fifteen milliseconds. A key
-    // pressed inside that window used to land between ours, which is what
+    // Sending backspaces and letters takes a moment, TextInjector.KeyGapMs per
+    // key, because some apps drop keys sent in a burst. A key pressed inside
+    // that window used to land between ours, which is what
     // produced "wworld" and "wlord". The hook holds any letter typed during
     // the replacement and hands it back here, and it is then typed properly
     // afterwards, so nothing is lost and nothing is scrambled.
     //
     // The hold is ended in a finally block. If it were ever left on, letters
     // would stop reaching the app, so that is not left to chance.
-    // Time O(n), about fifteen milliseconds.
+    // Time O(n), TextInjector.KeyGapMs per key sent.
     private TextInjector.InjectionResult ReplaceHoldingKeys(string typed, string replacement)
     {
         _hook.Gate.Begin();

@@ -30,9 +30,10 @@ namespace SmartKeyboard.Core.Engine;
 public class KeyHoldGate
 {
     /// <summary>
-    /// The most keys held at once. A replacement is over in well under a
-    /// tenth of a second, so this is never reached by real typing. It exists
-    /// so that a bug could never swallow more than a few keystrokes.
+    /// The most keys held at once. The longest replacement, a mixup fixed
+    /// across two words, takes about a third of a second with its wait, so
+    /// even fast typing holds two or three keys. It exists so that a bug
+    /// could never swallow more than a few keystrokes.
     /// </summary>
     public const int MaxHeld = 8;
 

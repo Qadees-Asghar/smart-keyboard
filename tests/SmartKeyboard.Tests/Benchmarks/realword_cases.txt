@@ -1,0 +1,85 @@
+# Real-word mixup benchmark.
+#
+# One case per line:   word before | what was typed | word after | what should come out
+#
+# An empty word before means the start of a sentence. When the last column
+# equals the typed word, it was the right word and must be left alone.
+#
+# Lines starting with # are ignored.
+
+# --- Mixups that should be fixed ---------------------------------------------
+email|form|the|from
+comes|form|the|from
+away|form|the|from
+more|then|the|than
+better|then|i|than
+rather|then|a|than
+less|then|a|than
+and|than|we|then
+since|than|i|then
+one|off|the|of
+some|off|the|of
+all|off|them|of
+want|too|go|to
+going|too|be|to
+way|to|much|too
+i|loose|my|lose
+to|loose|weight|lose
+it|quiet|good|quite
+not|quiet|sure|quite
+the|whether|is|weather
+know|weather|or|whether
+to|by|a|buy
+over|their|is|there
+is|their|a|there
+in|there|house|their
+to|except|the|accept
+everyone|accept|me|except
+the|affect|of|effect
+will|effect|the|affect
+some|advise|on|advice
+a|breathe|of|breath
+i|past|the|passed
+come|hear|and|here
+i|here|you|hear
+i|now|that|know
+|were|are|where
+we|where|going|were
+
+# --- The right word, which must be left alone --------------------------------
+a|form|to|form
+the|form|is|form
+different|form|of|form
+email|from|the|from
+more|than|the|than
+and|then|we|then
+one|of|the|of
+turn|off|the|off
+it|off|the|off
+made|off|with|off
+want|to|go|to
+way|too|much|too
+to|lose|weight|lose
+a|loose|shirt|loose
+is|quite|good|quite
+very|quiet|here|quiet
+the|weather|is|weather
+know|whether|or|whether
+to|buy|a|buy
+stand|by|the|by
+over|there|is|there
+in|their|house|their
+to|accept|the|accept
+everyone|except|me|except
+the|effect|of|effect
+will|affect|the|affect
+some|advice|on|advice
+a|breath|of|breath
+i|passed|the|passed
+the|past|few|past
+come|here|and|here
+i|hear|you|hear
+i|know|that|know
+right|now|i|now
+we|were|going|were
+|where|are|where

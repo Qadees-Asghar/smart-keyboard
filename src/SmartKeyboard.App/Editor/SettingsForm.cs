@@ -15,6 +15,7 @@ public class SettingsForm : Form
     private readonly CheckBox _predictions;
     private readonly CheckBox _spellCheck;
     private readonly CheckBox _diagnostics;
+    private readonly CheckBox _realWords;
     private readonly NumericUpDown _suggestionCount;
 
     public SettingsForm(AppSettings settings)
@@ -41,6 +42,11 @@ public class SettingsForm : Form
             "Also fix messier words",
             "Words of 6 letters or more with two mistakes in them.",
             _working.FixMessyWords);
+
+        _realWords = Check(
+            "Fix mixed-up words, like form for from",
+            "Only when the words either side make it clear. Works in other apps too.",
+            _working.FixRealWords);
 
         _systemWideAutocorrect = Check(
             "Fix typos in other apps too",
@@ -104,6 +110,7 @@ public class SettingsForm : Form
         layout.Controls.Add(SectionTitle("Typing"));
         layout.Controls.Add(_autocorrect);
         layout.Controls.Add(_messy);
+        layout.Controls.Add(_realWords);
         layout.Controls.Add(_spellCheck);
 
         layout.Controls.Add(SectionTitle("Suggestions"));
@@ -236,6 +243,7 @@ public class SettingsForm : Form
     {
         _working.AutocorrectEnabled = _autocorrect.Checked;
         _working.FixMessyWords = _messy.Checked;
+        _working.FixRealWords = _realWords.Checked;
         _working.SystemWideAutocorrect = _systemWideAutocorrect.Checked;
         _working.LearningEnabled = _learning.Checked;
         _working.ShowPredictions = _predictions.Checked;

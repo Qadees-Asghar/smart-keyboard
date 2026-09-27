@@ -5,10 +5,19 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Only for System.Windows.Automation, which reads the few characters
+         before the caret in another app. No WPF windows are used. -->
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
+
+  <!-- UseWPF drops the implicit System.IO using, because WPF has a Path type
+       of its own. No WPF namespace is imported here, so it is put back. -->
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SmartKeyboard.Core\SmartKeyboard.Core.csproj" />

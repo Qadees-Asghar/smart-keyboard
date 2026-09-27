@@ -436,4 +436,177 @@ public class TypedWordTrackerTests
         // from its first letter.
         Assert.Equal(new[] { false, true }, seen);
     }
+
+    [Fact]
+    public void ConfirmingTheStartMakesTheFirstWordAfterAResetKnown()
+    {
+        // The app showed a word boundary right before "hel", so this word is
+        // whole after all and may be completed and corrected.
+        var tracker = new TypedWordTracker();
+        var seen = new List<bool>();
+        tracker.WordFinished += (_, e) => seen.Add(e.StartWasKnown);
+
+        tracker.Reset();
+        foreach (char c in "hel")
+        {
+            tracker.AddCharacter(c);
+        }
+
+        Assert.False(tracker.IsWordStartKnown);
+        Assert.True(tracker.TryConfirmWordStart(tracker.Version));
+        Assert.True(tracker.IsWordStartKnown);
+
+        foreach (char c in "o ")
+        {
+            tracker.AddCharacter(c);
+        }
+
+        Assert.Equal(new[] { true }, seen);
+    }
+
+    [Fact]
+    public void AConfirmationThatArrivesLateIsIgnored()
+    {
+        // The check started, then the user clicked somewhere else. What the
+        // app showed describes a caret that has since moved.
+        var tracker = new TypedWordTracker();
+        tracker.Reset();
+        tracker.AddCharacter('h');
+
+        int version = tracker.Version;
+        tracker.Reset();
+
+        Assert.False(tracker.TryConfirmWordStart(version));
+        Assert.False(tracker.IsWordStartKnown);
+    }
+
+    [Fact]
+    public void AConfirmationOvertakenByAnotherLetterIsIgnored()
+    {
+        var tracker = new TypedWordTracker();
+        tracker.Reset();
+        tracker.AddCharacter('h');
+
+        int version = tracker.Version;
+        tracker.AddCharacter('e');
+
+        Assert.False(tracker.TryConfirmWordStart(version));
+        Assert.False(tracker.IsWordStartKnown);
+    }
+
+    // Types a string one key at a time. Time O(n).
+    private static void TypeAll(TypedWordTracker tracker, string text)
+    {
+        foreach (char c in text)
+        {
+            tracker.AddCharacter(c);
+        }
+    }
+
+    // Collects the "word before" record carried by each finished word.
+    private static List<FinishedWord?> WatchPrevious(TypedWordTracker tracker)
+    {
+        var seen = new List<FinishedWord?>();
+        tracker.WordFinished += (_, e) => seen.Add(e.Previous);
+        return seen;
+    }
+
+    [Fact]
+    public void AFinishedWordCarriesTheWordBeforeItExactlyAsTyped()
+    {
+        // Going back over "Form" in "email Form the" needs its capitals, the
+        // space after it, and "email" before it.
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "email Form the ");
+
+        Assert.Equal(new FinishedWord("Form", ' ', true, "email"), seen[2]);
+    }
+
+    [Fact]
+    public void ASentenceEndCutsTheLink()
+    {
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "form. the ");
+
+        Assert.Null(seen[1]);
+    }
+
+    [Fact]
+    public void TwoSeparatorsInARowCutTheLink()
+    {
+        // ", " is two characters, and the record only holds one.
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "form, the ");
+
+        Assert.Null(seen[1]);
+    }
+
+    [Fact]
+    public void ADigitCutsTheLink()
+    {
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "form 4the ");
+
+        Assert.Null(seen[1]);
+    }
+
+    [Fact]
+    public void AResetCutsTheLink()
+    {
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "form ");
+        tracker.Reset();
+        TypeAll(tracker, "the ");
+
+        Assert.Null(seen[1]);
+    }
+
+    [Fact]
+    public void ACorrectedWordIsRememberedAsCorrected()
+    {
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "say helo ");
+        tracker.CorrectLastWord("hello");
+        TypeAll(tracker, "world ");
+
+        Assert.Equal(new FinishedWord("hello", ' ', true, "say"), seen[2]);
+        Assert.Equal("world", tracker.PreviousWord);
+    }
+
+    [Fact]
+    public void CorrectingTheLastWordOfASentenceDoesNotCarryItIntoTheNext()
+    {
+        var tracker = new TypedWordTracker();
+
+        TypeAll(tracker, "helo.");
+        tracker.CorrectLastWord("hello");
+
+        Assert.Null(tracker.PreviousWord);
+        Assert.Null(tracker.LastFinished);
+    }
+
+    [Fact]
+    public void AnAcceptedSuggestionIsRememberedAsItWasTyped()
+    {
+        var tracker = new TypedWordTracker();
+        List<FinishedWord?> seen = WatchPrevious(tracker);
+
+        TypeAll(tracker, "hello Wor");
+        tracker.AcceptWord("world", "World");
+        TypeAll(tracker, "is ");
+
+        Assert.Equal(new FinishedWord("World", ' ', true, "hello"), seen[1]);
+    }
 }

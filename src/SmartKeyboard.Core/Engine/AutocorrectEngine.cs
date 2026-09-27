@@ -23,6 +23,14 @@ namespace SmartKeyboard.Core.Engine;
 /// equally close to what you typed, there is no way to tell which you meant,
 /// so it leaves it alone and lets the red underline do the talking instead.
 ///
+/// When the word typed before is known, the sentence gets a say as well.
+/// Candidates the same distance away are then scored on how well they fit
+/// after that word (see ContextRanking) multiplied by how likely their kind
+/// of slip is. "more thn" becomes "more than" rather than "more the", and
+/// "come bak" becomes "come back" rather than "come bake", although "the" is
+/// commoner and "bake" keeps every letter typed. Without a previous word the
+/// rules above apply unchanged.
+///
 /// It never touches:
 ///   words it already knows          they are spelled fine
 ///   words you added yourself        your own names and terms
@@ -43,16 +51,29 @@ public class AutocorrectEngine
     /// <summary>A word must be at least this long before two mistakes are fixed.</summary>
     public const int MinLengthForTwoMistakes = 6;
 
+    /// <summary>
+    /// How many candidates to weigh when the previous word is known. More
+    /// than the usual five, because the word that fits the sentence is often
+    /// not among the five commonest.
+    /// </summary>
+    public const int ContextCandidateCount = 20;
+
     private readonly FuzzyMatcher _fuzzy;
     private readonly Trie _words;
     private readonly UserDictionary? _users;
+    private readonly BigramIndex? _bigrams;
 
-    public AutocorrectEngine(FuzzyMatcher fuzzy, Trie words, UserDictionary? users = null)
+    public AutocorrectEngine(
+        FuzzyMatcher fuzzy, Trie words, UserDictionary? users = null, BigramIndex? bigrams = null)
     {
         _fuzzy = fuzzy ?? throw new ArgumentNullException(nameof(fuzzy));
         _words = words ?? throw new ArgumentNullException(nameof(words));
         _users = users;
+        _bigrams = bigrams;
+        _context = bigrams is null ? null : new ContextRanking(bigrams, words);
     }
+
+    private readonly ContextRanking? _context;
 
     /// <summary>Turned on or off in Settings. On by default in Editor Mode.</summary>
     public bool Enabled { get; set; } = true;
@@ -66,8 +87,10 @@ public class AutocorrectEngine
     // Decides what to do with a finished word.
     // isSentenceStart tells it whether the word is the first of a sentence,
     // because that is the only place a capital letter means nothing special.
+    // previousWord is the word typed just before, when there is one, and lets
+    // the sentence help choose between words that are equally close.
     // Time is the same as FuzzyMatcher.FindCorrections.
-    public AutocorrectResult Check(string? word, bool isSentenceStart = false)
+    public AutocorrectResult Check(string? word, bool isSentenceStart = false, string? previousWord = null)
     {
         string typed = word ?? string.Empty;
 
@@ -108,11 +131,39 @@ public class AutocorrectEngine
             return AutocorrectResult.Keep(typed, "looks like a name");
         }
 
-        List<FuzzyMatch> candidates = _fuzzy.FindCorrections(lower);
+        bool inContext = HasContext(previousWord);
+
+        List<FuzzyMatch> candidates = inContext
+            ? _fuzzy.FindCorrections(lower, ContextCandidateCount)
+            : _fuzzy.FindCorrections(lower);
 
         if (candidates.Count == 0)
         {
             return AutocorrectResult.Keep(typed, "no close word found");
+        }
+
+        // The word pair data has no contractions in it at all, so context can
+        // never speak up for "can't" and would always hand "i cant" to "can".
+        // A missing apostrophe keeps its outright win, as it has without
+        // context.
+        if (candidates[0].IsMissingApostrophe)
+        {
+            inContext = false;
+        }
+
+        Dictionary<string, double>? scores = null;
+
+        if (inContext)
+        {
+            scores = ScoreInContext(candidates, previousWord!);
+
+            // Closest first, as always. Among words equally close, the one
+            // that best fits after the previous word comes first.
+            candidates = candidates
+                .OrderBy(match => match.Distance)
+                .ThenByDescending(match => scores[match.Word])
+                .ThenBy(match => match.Word, StringComparer.Ordinal)
+                .ToList();
         }
 
         FuzzyMatch best = candidates[0];
@@ -138,12 +189,80 @@ public class AutocorrectEngine
         double margin = best.Distance >= 2 ? MarginForTwoMistakes : MarginForOneMistake;
 
         // With a runner up in the running, the winner has to be clearly ahead.
-        if (candidates.Count > 1 && !IsClearWinner(best, candidates[1], margin))
+        bool clear = candidates.Count < 2
+            || (scores is null
+                ? IsClearWinner(best, candidates[1], margin)
+                : IsClearWinnerInContext(best, candidates[1], scores, margin));
+
+        if (!clear)
         {
             return AutocorrectResult.Keep(typed, "two words are too close to call");
         }
 
         return AutocorrectResult.Replace(typed, WordScanner.MatchCapitalization(typed, best.Word));
+    }
+
+    // True when there is a previous word the bigram data knows something
+    // about. Time O(1) on average.
+    private bool HasContext(string? previousWord)
+    {
+        return _bigrams is not null
+            && !string.IsNullOrWhiteSpace(previousWord)
+            && _bigrams.HasFollowers(previousWord);
+    }
+
+    /// <summary>
+    /// How much more likely each kind of slip is than hitting a wrong letter,
+    /// indexed by FuzzyMatch.SlipRank.
+    ///
+    /// Without context the slip kind simply wins outright. With context it
+    /// has to be weighed against how well the word fits, so it becomes a
+    /// multiplier instead: strong enough that "say helo" still gives "hello"
+    /// rather than "help", not so strong that "come bak" gives "bake", a word
+    /// that almost never follows "come".
+    /// </summary>
+    private static readonly double[] SlipWeights =
+    {
+        50.0, // apostrophe left out
+        20.0, // double letter
+        20.0, // two letters swapped
+        10.0, // word not finished
+        1.0,  // wrong letter
+    };
+
+    // Scores every candidate on how well it fits after the previous word,
+    // times how likely its slip is. Bigger is better.
+    // Time O(c) for c candidates, each lookup O(1) on average.
+    private Dictionary<string, double> ScoreInContext(List<FuzzyMatch> candidates, string previousWord)
+    {
+        var scores = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        foreach (FuzzyMatch match in candidates)
+        {
+            double fit = _context!.Score(new WordEntry(match.Word, match.Frequency), previousWord);
+            scores[match.Word] = fit * SlipWeights[Math.Clamp(match.SlipRank, 0, SlipWeights.Length - 1)];
+        }
+
+        return scores;
+    }
+
+    // The same test as IsClearWinner, but on the context scores. A runner up
+    // further away is still no competition. Time O(1).
+    private static bool IsClearWinnerInContext(
+        FuzzyMatch best, FuzzyMatch runnerUp, Dictionary<string, double> scores, double margin)
+    {
+        if (runnerUp.Distance > best.Distance)
+        {
+            return true;
+        }
+
+        double runnerScore = scores[runnerUp.Word];
+        if (runnerScore <= 0)
+        {
+            return true;
+        }
+
+        return scores[best.Word] >= margin * runnerScore;
     }
 
     // True when the best candidate is far enough ahead of the runner up to be

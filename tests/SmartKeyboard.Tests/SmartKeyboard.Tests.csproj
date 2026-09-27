@@ -28,4 +28,10 @@
     <None Include="..\..\src\SmartKeyboard.App\Data\bigrams.txt" Link="Data\bigrams.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The typos and correct words autocorrect is scored against. -->
+  <ItemGroup>
+    <None Include="Benchmarks\autocorrect_cases.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Benchmarks\realword_cases.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

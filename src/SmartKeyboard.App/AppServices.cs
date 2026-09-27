@@ -35,6 +35,14 @@ public sealed class AppServices
             DictionaryLoader.Instance.Bigrams,
             Users);
 
+        // Judges mixups on the shipped word pairs only, so a mixup the user
+        // just typed, and which learning has already counted, cannot vouch
+        // for itself.
+        RealWords = new RealWordChecker(
+            DictionaryLoader.Instance.Bigrams,
+            DictionaryLoader.Instance.Words,
+            Learning.GetLearnedPairCount);
+
         // Learning changes the word counts, so the cached "most common words"
         // list has to be worked out again.
         Learning.Changed += (_, _) => Predictions.Refresh();
@@ -56,6 +64,9 @@ public sealed class AppServices
 
     /// <summary>Counts what you type, so suggestions get better.</summary>
     public LearningEngine Learning { get; }
+
+    /// <summary>Swaps real words that were mixed up, like "form" for "from".</summary>
+    public RealWordChecker RealWords { get; }
 
     /// <summary>The options the user chose, saved between runs.</summary>
     public AppSettings Settings { get; }
@@ -139,6 +150,7 @@ public sealed class AppServices
     public void ApplySettings()
     {
         Learning.Enabled = Settings.LearningEnabled;
+        RealWords.Enabled = Settings.AutocorrectEnabled && Settings.FixRealWords;
 
         if (Autocorrect is not null)
         {
@@ -168,7 +180,7 @@ public sealed class AppServices
             var fuzzy = new FuzzyMatcher(Tree, Dictionary.Words);
 
             Fuzzy = fuzzy;
-            Autocorrect = new AutocorrectEngine(fuzzy, Dictionary.Words, Users);
+            Autocorrect = new AutocorrectEngine(fuzzy, Dictionary.Words, Users, Dictionary.Bigrams);
             IsSpellCheckReady = true;
 
             // The typo engine is built last, so its options are applied here.

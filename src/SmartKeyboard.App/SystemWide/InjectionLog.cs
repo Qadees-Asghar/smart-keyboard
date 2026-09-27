@@ -113,6 +113,7 @@ public static class InjectionLog
             SmartKeyboard.Core.Engine.SuggestionPolicy.Refusal.TooFewLetters => "too-few-letters",
             SmartKeyboard.Core.Engine.SuggestionPolicy.Refusal.NoSession => "not-typing",
             SmartKeyboard.Core.Engine.SuggestionPolicy.Refusal.NoWords => "no-words-found",
+            SmartKeyboard.Core.Engine.SuggestionPolicy.Refusal.WordStartUnknown => "word-start-unknown",
             _ => "shown",
         };
     }

@@ -16,6 +16,13 @@ public class AppSettings
     public bool FixMessyWords { get; set; } = true;
 
     /// <summary>
+    /// Swap a correctly spelled but wrong word, like "form" for "from", once
+    /// the words either side of it show it was a mixup. Off by default: a
+    /// wrong swap trades one real word for another, which is easy to miss.
+    /// </summary>
+    public bool FixRealWords { get; set; }
+
+    /// <summary>
     /// Autocorrect while typing in other apps. Off by default on purpose:
     /// changing words inside someone else's app without being asked is rude,
     /// so the user has to turn it on.
@@ -95,6 +102,7 @@ public class AppSettings
             "# SmartKeyboard settings. Delete this file to go back to the defaults.",
             $"autocorrect={AutocorrectEnabled}",
             $"fixMessyWords={FixMessyWords}",
+            $"fixRealWords={FixRealWords}",
             $"systemWideAutocorrect={SystemWideAutocorrect}",
             $"learning={LearningEnabled}",
             $"showPredictions={ShowPredictions}",
@@ -117,6 +125,9 @@ public class AppSettings
                 break;
             case "fixMessyWords":
                 FixMessyWords = ReadBool(value, FixMessyWords);
+                break;
+            case "fixRealWords":
+                FixRealWords = ReadBool(value, FixRealWords);
                 break;
             case "diagnostics":
                 Diagnostics = ReadBool(value, Diagnostics);
@@ -169,6 +180,7 @@ public class AppSettings
     {
         AutocorrectEnabled = other.AutocorrectEnabled;
         FixMessyWords = other.FixMessyWords;
+        FixRealWords = other.FixRealWords;
         SystemWideAutocorrect = other.SystemWideAutocorrect;
         LearningEnabled = other.LearningEnabled;
         ShowPredictions = other.ShowPredictions;
