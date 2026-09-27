@@ -16,19 +16,26 @@ public class TrayController : Form
     /// <summary>Any number will do, it just has to be ours.</summary>
     private const int HotkeyId = 0xA17;
 
-    private readonly AppServices _services;
+    private readonly AppSettings _settings;
     private readonly NotifyIcon _tray;
     private readonly ContextMenuStrip _menu;
     private readonly ToolStripMenuItem _pauseItem;
     private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _autocorrectItem;
+    private readonly ToolStripMenuItem _editorItem;
+    private readonly ToolStripMenuItem _settingsItem;
+
+    // Null until the dictionary has finished loading in the background.
+    // Everything that needs it checks first, because the icon is deliberately
+    // on screen before it exists.
+    private AppServices? _services;
 
     private SystemWideController? _controller;
     private MainForm? _editor;
 
-    public TrayController(AppServices services)
+    public TrayController(AppSettings settings)
     {
-        _services = services;
+        _settings = settings;
 
         // Never shown. Windows still needs it to exist to deliver the hotkey.
         FormBorderStyle = FormBorderStyle.None;
@@ -37,7 +44,7 @@ public class TrayController : Form
         Opacity = 0;
         Size = new Size(1, 1);
 
-        _statusItem = new ToolStripMenuItem("Starting...") { Enabled = false };
+        _statusItem = new ToolStripMenuItem("Loading dictionary...") { Enabled = false };
         _pauseItem = new ToolStripMenuItem("Pause (Ctrl+Alt+K)");
         _pauseItem.Click += (_, _) => TogglePause();
 
@@ -47,21 +54,26 @@ public class TrayController : Form
         _autocorrectItem = new ToolStripMenuItem("Fix typos in other apps")
         {
             CheckOnClick = true,
-            Checked = _services.Settings.SystemWideAutocorrect,
+            Checked = _settings.SystemWideAutocorrect,
         };
 
         _autocorrectItem.CheckedChanged += (_, _) =>
         {
-            _services.Settings.SystemWideAutocorrect = _autocorrectItem.Checked;
-            _services.Settings.Save();
+            _settings.SystemWideAutocorrect = _autocorrectItem.Checked;
+            _settings.Save();
             UpdateMenu();
         };
 
-        var openEditor = new ToolStripMenuItem("Open Editor");
-        openEditor.Click += (_, _) => ShowEditor();
+        // These three stay greyed out until the dictionary is in memory.
+        // There is nothing for them to open before that.
+        _pauseItem.Enabled = false;
+        _autocorrectItem.Enabled = false;
 
-        var settings = new ToolStripMenuItem("Settings...");
-        settings.Click += (_, _) => ShowSettings();
+        _editorItem = new ToolStripMenuItem("Open Editor") { Enabled = false };
+        _editorItem.Click += (_, _) => ShowEditor();
+
+        _settingsItem = new ToolStripMenuItem("Settings...") { Enabled = false };
+        _settingsItem.Click += (_, _) => ShowSettings();
 
         var exit = new ToolStripMenuItem("Exit");
         exit.Click += (_, _) => ExitProgram();
@@ -78,8 +90,8 @@ public class TrayController : Form
         _menu.Items.Add(_pauseItem);
         _menu.Items.Add(_autocorrectItem);
         _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add(openEditor);
-        _menu.Items.Add(settings);
+        _menu.Items.Add(_editorItem);
+        _menu.Items.Add(_settingsItem);
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(exit);
 
@@ -87,15 +99,20 @@ public class TrayController : Form
         {
             Icon = BuildIcon(),
             Visible = true,
-            Text = "SmartKeyboard",
+            Text = "SmartKeyboard, loading...",
             ContextMenuStrip = _menu,
         };
 
         _tray.DoubleClick += (_, _) => ShowEditor();
     }
 
-    // Starts System Wide Mode once the window exists, because the controller
-    // needs a real handle to hand work back to. Time O(1).
+    // The window exists, so claim the hotkey and start loading.
+    //
+    // The dictionary is read on a background thread on purpose. Reading it
+    // here would hold the icon back for seconds on a cold machine, and a tray
+    // program with no icon looks like a program that did not start, which is
+    // why people double clicked run.cmd and ended up with two copies.
+    // Time O(1) here.
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
@@ -105,6 +122,63 @@ public class TrayController : Form
             HotkeyId,
             NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT,
             (int)Keys.K);
+
+        UpdateMenu();
+        StartLoading();
+    }
+
+    // Reads the dictionary away from the UI thread, then comes back to it.
+    // Time O(1) here, the real work is on the other thread.
+    private void StartLoading()
+    {
+        Task.Run(() => AppServices.Start(_settings)).ContinueWith(
+            finished =>
+            {
+                try
+                {
+                    BeginInvoke(() => OnLoaded(finished));
+                }
+                catch (InvalidOperationException)
+                {
+                    // The user exited while it was still loading.
+                }
+            },
+            TaskScheduler.Default);
+    }
+
+    // The dictionary is in memory. Wire everything up and open the menu.
+    // Runs on the UI thread. Time O(1).
+    private void OnLoaded(Task<AppServices> finished)
+    {
+        if (finished.IsFaulted)
+        {
+            Exception error = finished.Exception?.GetBaseException()
+                ?? new InvalidOperationException("The dictionary could not be loaded.");
+
+            _statusItem.Text = "Could not load the dictionary";
+            _tray.Text = "SmartKeyboard, could not start";
+            _tray.ShowBalloonTip(8000, "SmartKeyboard could not start", error.Message, ToolTipIcon.Error);
+            return;
+        }
+
+        _services = finished.Result;
+
+        _pauseItem.Enabled = true;
+        _autocorrectItem.Enabled = true;
+        _editorItem.Enabled = true;
+        _settingsItem.Enabled = true;
+
+        StartSystemWide();
+        UpdateMenu();
+    }
+
+    // Starts watching the keyboard. Time O(1).
+    private void StartSystemWide()
+    {
+        if (_services is null)
+        {
+            return;
+        }
 
         _controller = new SystemWideController(_services, this);
         _controller.StateChanged += (_, _) => BeginInvoke(UpdateMenu);
@@ -122,11 +196,10 @@ public class TrayController : Form
                 "System Wide Mode could not start. " + error.Message,
                 ToolTipIcon.Warning);
         }
-
-        UpdateMenu();
     }
 
-    // Catches the global hotkey message. Time O(1).
+    // Catches the global hotkey, and the word from a second copy that it
+    // tried to start. Time O(1).
     protected override void WndProc(ref Message message)
     {
         if (message.Msg == NativeMethods.WM_HOTKEY && message.WParam.ToInt32() == HotkeyId)
@@ -135,7 +208,28 @@ public class TrayController : Form
             return;
         }
 
+        if (message.Msg == (int)NativeMethods.AlreadyRunningMessage)
+        {
+            ShowAlreadyRunning();
+            return;
+        }
+
         base.WndProc(ref message);
+    }
+
+    // Someone started SmartKeyboard while this copy was already running. The
+    // other one has already closed itself, so all that is left is to say so,
+    // because not knowing it was running is why they started it.
+    // Time O(1).
+    private void ShowAlreadyRunning()
+    {
+        _tray.ShowBalloonTip(
+            4000,
+            "SmartKeyboard is already running",
+            _services is null
+                ? "It is still loading the dictionary. This icon is it."
+                : "This icon down by the clock is it. Right click for the menu.",
+            ToolTipIcon.Info);
     }
 
     // Time O(1).
@@ -150,6 +244,9 @@ public class TrayController : Form
     {
         if (_controller is null)
         {
+            // Still loading. The icon is up so the user can see we are here.
+            _statusItem.Text = "Loading dictionary...";
+            _tray.Text = "SmartKeyboard, loading...";
             return;
         }
 
@@ -181,6 +278,12 @@ public class TrayController : Form
     // Opens the editor, or brings it back if it is already open. Time O(1).
     private void ShowEditor()
     {
+        if (_services is null)
+        {
+            // Still loading. The editor has nothing to show without words.
+            return;
+        }
+
         if (_editor is null || _editor.IsDisposed)
         {
             _editor = new MainForm(_services);
@@ -198,28 +301,47 @@ public class TrayController : Form
     // Time O(1).
     private void ShowSettings()
     {
-        using var window = new SettingsForm(_services.Settings);
+        if (_services is null)
+        {
+            return;
+        }
+
+        using var window = new SettingsForm(_settings);
         if (window.ShowDialog() != DialogResult.OK)
         {
             return;
         }
 
-        _services.Settings.CopyFrom(window.Result);
-        _services.Settings.Save();
+        _settings.CopyFrom(window.Result);
+        _settings.Save();
         _services.ApplySettings();
 
-        _autocorrectItem.Checked = _services.Settings.SystemWideAutocorrect;
+        _autocorrectItem.Checked = _settings.SystemWideAutocorrect;
     }
 
-    // Saves what was learned, then closes everything down. Time O(N).
+    // Time O(1). The saving happens in OnFormClosing, so that it happens
+    // however the program is closed and not only from this menu item.
     private void ExitProgram()
     {
-        _services.Learning.Save();
+        Close();
+    }
+
+    // Saves what was learned and lets go of the keyboard.
+    //
+    // This is an override rather than part of the Exit menu item on purpose.
+    // run.cmd now closes a running copy before it builds, and Windows closes
+    // everything at shut down, and neither of those goes through the menu. Put
+    // here, the counts survive all three. Time O(N) over what was learned.
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // Null when the user quit before the dictionary finished loading.
+        // Nothing has been learned yet then, so there is nothing to save.
+        _services?.Learning.Save();
 
         _tray.Visible = false;
         _controller?.Stop();
 
-        Application.Exit();
+        base.OnFormClosing(e);
     }
 
     // Draws a small tray icon in the brand orange, so nothing has to ship as

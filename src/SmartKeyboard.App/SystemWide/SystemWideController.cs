@@ -24,6 +24,11 @@ public class SystemWideController : IDisposable
     private readonly KeyboardHook _hook = new();
     private readonly MouseHook _mouse = new();
     private readonly TypedWordTracker _tracker = new();
+
+    // Whether the user is in the middle of writing something, as opposed to
+    // simply pressing keys. This is what keeps the box off the screen when
+    // there is nothing being typed into.
+    private readonly TypingSession _session = new();
     private readonly SuggestionPopup _popup = new();
     private readonly Control _uiThread;
 
@@ -31,8 +36,14 @@ public class SystemWideController : IDisposable
     /// How long to wait for a typed separator to reach the other app before
     /// correcting the word in front of it. The hook sees keys before the app
     /// does, so without this pause the delete would start too early.
+    ///
+    /// This was 45, which is fine on a warm machine and not enough on a cold
+    /// one. Straight after a restart the other app is still starting up and
+    /// takes longer to take the key, so the backspaces began before the space
+    /// had landed and ate a character in front of the word instead. Ninety is
+    /// still far below anything a person notices, and it doubles the margin.
     /// </summary>
-    private const int SeparatorLandingMs = 45;
+    private const int SeparatorLandingMs = 90;
 
     // Only the newest lookup is worth showing. This counter lets an older one
     // that finishes late recognise that it has been overtaken, and give up.
@@ -41,6 +52,10 @@ public class SystemWideController : IDisposable
     private IntPtr _lastWindow = IntPtr.Zero;
     private volatile bool _pausedForPrivacy;
     private volatile bool _reportedTypingBlocked;
+
+    // True while the app in front is a code editor or a terminal. Read by the
+    // hook thread on every key, so it is a plain field and nothing more.
+    private volatile bool _inCodeWindow;
 
     /// <summary>How often to look for a password box, in milliseconds.</summary>
     private const int PrivacyCheckMs = 300;
@@ -96,6 +111,7 @@ public class SystemWideController : IDisposable
         _hook.ControlKeyPressed += OnControlKey;
         _tracker.WordFinished += OnWordFinished;
         _privacyTimer.Tick += CheckPrivacy;
+        _privacyTimer.Tick += CheckIdle;
         _mouse.Clicked += OnMouseClicked;
         _popup.WordClicked += OnWordClicked;
         _popup.RowHovered += (_, row) => _selectedIndex = row;
@@ -138,6 +154,11 @@ public class SystemWideController : IDisposable
             if (_pausedForPrivacy)
             {
                 return "Paused, a password box has focus";
+            }
+
+            if (_inCodeWindow)
+            {
+                return "Quiet, this is a code editor";
             }
 
             // Whether typos get fixed is said out loud, because it starts off
@@ -199,13 +220,33 @@ public class SystemWideController : IDisposable
     // short. Time O(1).
     private void OnKeyTyped(object? sender, TypedKeyEventArgs e)
     {
-        if (PausedForPrivacy())
+        if (IsQuiet())
         {
             return;
         }
 
+        HandleTypedCharacter(e.Character);
+    }
+
+    // Follows one typed character and decides what to offer.
+    //
+    // Separate from the hook event because a letter held back during a
+    // replacement is put through here afterwards, and it has to be followed
+    // in exactly the same way as one that arrived normally. Time O(1).
+    private void HandleTypedCharacter(char character)
+    {
         NoticeWindowChange();
-        _tracker.AddCharacter(e.Character);
+
+        // Only letters count as writing. A space on its own does not start a
+        // session, which is what stops a stray space putting a list of next
+        // word guesses on an idle screen, while still leaving the session
+        // running when a space follows a word that was just typed.
+        if (WordScanner.IsWordChar(character))
+        {
+            _session.NoteKey(DateTime.UtcNow);
+        }
+
+        _tracker.AddCharacter(character);
 
         if (_tracker.IsEmpty)
         {
@@ -223,7 +264,7 @@ public class SystemWideController : IDisposable
     // Time O(1).
     private void OnControlKey(object? sender, ControlKeyEventArgs e)
     {
-        if (PausedForPrivacy())
+        if (IsQuiet())
         {
             return;
         }
@@ -234,21 +275,21 @@ public class SystemWideController : IDisposable
             // not, the key is left alone so the app underneath behaves as
             // normal. That matters: in a chat app, swallowing Enter when there
             // is nothing to accept would stop the user sending a message.
+            // A key is only taken when it is really being used. Setting
+            // Handled whatever happened was a bug: when the list on screen no
+            // longer matched what had been typed, the word was refused AND the
+            // Enter was eaten, so the user got neither a suggestion nor a new
+            // line. In an editor, where the popup is up nearly all the time,
+            // that meant Enter and the arrow keys simply stopped working.
             case ControlKeyKind.Accept:
-                if (_popupShowing)
-                {
-                    AcceptFromPopup();
-                    e.Handled = true;
-                }
-
+                e.Handled = _popupShowing && AcceptFromPopup();
                 break;
 
             case ControlKeyKind.MoveUp:
             case ControlKeyKind.MoveDown:
                 if (_popupShowing)
                 {
-                    MoveSelection(e.Kind == ControlKeyKind.MoveDown ? 1 : -1);
-                    e.Handled = true;
+                    e.Handled = MoveSelection(e.Kind == ControlKeyKind.MoveDown ? 1 : -1);
                 }
                 else
                 {
@@ -258,6 +299,8 @@ public class SystemWideController : IDisposable
                 break;
 
             case ControlKeyKind.Dismiss:
+                _session.End();
+
                 if (_popupShowing)
                 {
                     HidePopup();
@@ -267,35 +310,44 @@ public class SystemWideController : IDisposable
                 break;
 
             case ControlKeyKind.Backspace:
-                if (_tracker.Backspace() && !_tracker.IsEmpty)
-                {
-                    RequestSuggestions(_tracker.CurrentWord, _tracker.PreviousWord);
-                }
-                else
-                {
-                    HidePopup();
-                }
-
+                HandleBackspace();
                 break;
 
             case ControlKeyKind.CaretMoved:
                 // We no longer know where the caret is, so forget everything.
                 _tracker.Reset();
+                _session.End();
                 _frozenAnchor = null;
                 HidePopup();
                 break;
         }
     }
 
+    // Follows one Backspace. Separate from the hook event for the same reason
+    // as HandleTypedCharacter: one held back during a replacement is put
+    // through here afterwards. Time O(1).
+    private void HandleBackspace()
+    {
+        if (_tracker.Backspace() && !_tracker.IsEmpty)
+        {
+            RequestSuggestions(_tracker.CurrentWord, _tracker.PreviousWord);
+        }
+        else
+        {
+            HidePopup();
+        }
+    }
+
     // Moves the highlight, wrapping at the ends. Runs on the hook thread, so
     // the new position is worked out here and only the drawing is handed over.
     // Time O(1).
-    private void MoveSelection(int step)
+    private bool MoveSelection(int step)
     {
         string[] words = _current.Words;
         if (words.Length == 0)
         {
-            return;
+            // Nothing to move through, so the arrow key belongs to the app.
+            return false;
         }
 
         int next = (_selectedIndex + step + words.Length) % words.Length;
@@ -303,7 +355,7 @@ public class SystemWideController : IDisposable
 
         if (_uiThread.IsDisposed || !_uiThread.IsHandleCreated)
         {
-            return;
+            return false;
         }
 
         try
@@ -314,6 +366,8 @@ public class SystemWideController : IDisposable
         {
             // Closing down.
         }
+
+        return true;
     }
 
     // A word was finished, so learn from it. Runs on the hook thread, and
@@ -322,7 +376,11 @@ public class SystemWideController : IDisposable
     {
         _services.Learning.RecordWord(e.Word, e.PreviousWord);
 
-        if (_services.Settings.SystemWideAutocorrect)
+        // A word we did not watch from its first letter must not be
+        // replaced. What is on screen may be longer than what we counted, so
+        // deleting our count would eat letters that belong to something else
+        // and leave wreckage like "hehello".
+        if (_services.Settings.SystemWideAutocorrect && e.StartWasKnown)
         {
             TryAutocorrect(e.Word, e.Separator, e.PreviousWord is null);
         }
@@ -341,6 +399,14 @@ public class SystemWideController : IDisposable
     // pressed is still in flight. Deleting straight away would remove one
     // character too few. A short wait lets it land first.
     //
+    // Third, the user may have carried on typing during that wait. If they
+    // have, the separator is no longer the last thing in front of the caret,
+    // and deleting the word plus one would eat letters belonging to whatever
+    // came next. Typing "helo " and going straight on to "world" left "h"
+    // behind and produced "hhello". So the tracker's version is noted before
+    // the wait and checked after it, and a correction that has gone stale is
+    // dropped. AcceptWord guards itself the same way, by prefix.
+    //
     // Time O(1) here, the real work is on the background thread.
     private void TryAutocorrect(string word, char separator, bool isSentenceStart)
     {
@@ -350,6 +416,10 @@ public class SystemWideController : IDisposable
             return;
         }
 
+        // Read now, on the hook thread, while this is still the newest thing
+        // the user typed.
+        int version = _tracker.Version;
+
         Task.Run(async () =>
         {
             AutocorrectResult result = autocorrect.Check(word, isSentenceStart);
@@ -358,17 +428,69 @@ public class SystemWideController : IDisposable
                 return;
             }
 
-            await Task.Delay(SeparatorLandingMs).ConfigureAwait(false);
-
-            // Delete the word and the separator, then type the fixed word and
-            // put the separator back, so the sentence reads the same.
-            if (TextInjector.ReplaceWord(word + separator, result.Corrected + separator))
+            // Only fix words that went somewhere text can be typed. Letters
+            // pressed with the desktop or a file list in focus are not a
+            // sentence, and sending backspaces at Explorer would drive its
+            // type ahead search or start renaming something.
+            CaretLocator.TextTarget target = CaretLocator.DescribeTarget();
+            if (!TextInputClassifier.TakesText(target.HasCaret, target.HasFocus, target.ControlClass))
             {
-                _tracker.AcceptWord(result.Corrected);
+                return;
             }
-            else
+
+            // From here until the fix is in, the person's own letters are
+            // held back rather than allowed to land in the middle of it.
+            //
+            // The holding covers the settling wait as well as the typing,
+            // not just the typing. Waiting unguarded and then checking was
+            // tried first, and it was safe but useless: anyone typing at a
+            // normal speed pressed the next letter during the wait, the
+            // check saw the text had moved on, and the fix was abandoned.
+            // Nothing was mangled, but nothing was corrected either.
+            //
+            // Holding is only started once there is a real correction to
+            // make, so ordinary typing is never delayed.
+            //
+            // Whatever was held goes back in from the finally block, on every
+            // path. A correction called off by the check below used to return
+            // without replaying, and the held letters then turned up at the
+            // next replacement, somewhere else entirely.
+            _hook.Gate.Begin();
+
+            try
             {
-                ReportTypingBlocked();
+                await Task.Delay(SeparatorLandingMs).ConfigureAwait(false);
+
+                // A click, an arrow or a change of window still calls this
+                // off. Those are not held, and they mean the caret is
+                // somewhere else.
+                if (_tracker.Version != version)
+                {
+                    return;
+                }
+
+                // Delete the word and the separator, then type the fixed word
+                // and put the separator back, so the sentence reads the same.
+                // Only the letters that differ are actually touched.
+                TextInjector.InjectionResult sent =
+                    TextInjector.Replace(word + separator, result.Corrected + separator);
+
+                Log(sent);
+
+                // The tracker is moved on before the held keys are replayed,
+                // so they are followed from what is really on screen.
+                if (sent.Ok)
+                {
+                    _tracker.AcceptWord(result.Corrected);
+                }
+                else
+                {
+                    ReportTypingBlocked();
+                }
+            }
+            finally
+            {
+                _hook.Gate.End(ReplayHeld);
             }
         });
     }
@@ -377,16 +499,37 @@ public class SystemWideController : IDisposable
     // UI thread. Time O(1) here, the real work is on the other threads.
     private void RequestSuggestions(string prefix, string? previousWord)
     {
-        if (prefix.Length < 1)
+        // The cheap half of the decision is made here, on the hook thread,
+        // because counting letters costs nothing. Asking Windows what has
+        // focus does cost something, so that waits for the other thread.
+        if (prefix.Length < SuggestionPolicy.MinPrefixLength)
         {
             HidePopup();
             return;
         }
 
+        // Read here, on the hook thread, where it still describes the word
+        // being typed rather than whatever comes after it.
+        bool wordStartKnown = _tracker.IsWordStartKnown;
+
         int id = System.Threading.Interlocked.Increment(ref _lookupId);
 
         Task.Run(() =>
         {
+            CaretLocator.TextTarget target = CaretLocator.DescribeTarget();
+            bool takesText = TextInputClassifier.TakesText(
+                target.HasCaret, target.HasFocus, target.ControlClass);
+
+            SuggestionPolicy.Refusal refusal =
+                SuggestionPolicy.CheckCompletions(prefix, takesText, wordStartKnown);
+
+            if (refusal != SuggestionPolicy.Refusal.None)
+            {
+                LogPopup(refusal, "completion", prefix.Length, 0, target.ControlClass);
+                HidePopup();
+                return;
+            }
+
             List<string> words = _services.Suggestions
                 .GetSuggestions(prefix, previousWord, _services.Settings.SuggestionCount)
                 .Select(w => w.Word)
@@ -398,6 +541,13 @@ public class SystemWideController : IDisposable
             {
                 return;
             }
+
+            LogPopup(
+                words.Count == 0 ? SuggestionPolicy.Refusal.NoWords : SuggestionPolicy.Refusal.None,
+                "completion",
+                prefix.Length,
+                words.Count,
+                target.ControlClass);
 
             ShowOnUiThread(new SuggestionSet(prefix, words.ToArray()));
         });
@@ -414,10 +564,28 @@ public class SystemWideController : IDisposable
             return;
         }
 
+        // Read here, on the hook thread, so it reflects the moment the space
+        // was pressed rather than whenever the other thread gets round to it.
+        bool sessionLive = _session.IsLive(DateTime.UtcNow);
+
         int id = System.Threading.Interlocked.Increment(ref _lookupId);
 
         Task.Run(() =>
         {
+            CaretLocator.TextTarget target = CaretLocator.DescribeTarget();
+            bool takesText = TextInputClassifier.TakesText(
+                target.HasCaret, target.HasFocus, target.ControlClass);
+
+            SuggestionPolicy.Refusal refusal =
+                SuggestionPolicy.CheckPredictions(takesText, sessionLive);
+
+            if (refusal != SuggestionPolicy.Refusal.None)
+            {
+                LogPopup(refusal, "prediction", 0, 0, target.ControlClass);
+                HidePopup();
+                return;
+            }
+
             List<string> words = _services.Predictions.PredictNextWords(
                 previousWord, _services.Settings.SuggestionCount);
 
@@ -425,6 +593,13 @@ public class SystemWideController : IDisposable
             {
                 return;
             }
+
+            LogPopup(
+                words.Count == 0 ? SuggestionPolicy.Refusal.NoWords : SuggestionPolicy.Refusal.None,
+                "prediction",
+                0,
+                words.Count,
+                target.ControlClass);
 
             // Predictions belong to no prefix: nothing has been typed yet, so
             // accepting one inserts a word rather than replacing one.
@@ -524,14 +699,17 @@ public class SystemWideController : IDisposable
         return _frozenAnchor.Value;
     }
 
-    /// <summary>Types the highlighted word into the app in front.</summary>
-    // Time O(n) over the letters replaced.
-    public void AcceptFromPopup()
+    /// <summary>
+    /// Types the highlighted word into the app in front. Returns true when a
+    /// word really is going in, so the caller knows whether to keep the key.
+    /// </summary>
+    // Time O(1) here, the typing itself is handed to another thread.
+    public bool AcceptFromPopup()
     {
         SuggestionSet set = _current;
         int index = _selectedIndex;
 
-        AcceptWord(set, index >= 0 && index < set.Words.Length ? set.Words[index] : null);
+        return AcceptWord(set, index >= 0 && index < set.Words.Length ? set.Words[index] : null);
     }
 
     // A row in the popup was clicked. The popup never takes focus, so the app
@@ -543,12 +721,27 @@ public class SystemWideController : IDisposable
         AcceptFromPopup();
     }
 
-    // Time O(n).
-    private void AcceptWord(SuggestionSet set, string? word)
+    // Decides whether a word can go in, and if so starts putting it there.
+    //
+    // The deciding happens here, on whichever thread asked, so the answer is
+    // known at once and the key can be kept or passed on. The typing happens
+    // on another thread, because it deliberately pauses between keystrokes
+    // and this is sometimes the keyboard hook thread, which must never wait.
+    // Time O(1) here.
+
+    private bool AcceptWord(SuggestionSet set, string? word)
     {
         if (string.IsNullOrEmpty(word))
         {
-            return;
+            return false;
+        }
+
+        // The same rule as everywhere else: never replace letters we did not
+        // watch being typed.
+        if (!_tracker.IsWordStartKnown)
+        {
+            HidePopup();
+            return false;
         }
 
         string typed = _tracker.CurrentWord;
@@ -561,22 +754,109 @@ public class SystemWideController : IDisposable
         if (!string.Equals(typed, set.Prefix, StringComparison.Ordinal))
         {
             HidePopup();
-            return;
+            return false;
         }
 
         string replacement = WordScanner.MatchCapitalization(typed, word);
+        string? previous = _tracker.PreviousWord;
 
-        if (TextInjector.ReplaceWord(typed, replacement + " "))
-        {
-            _services.Learning.RecordWord(word, _tracker.PreviousWord);
-            _tracker.AcceptWord(word);
-        }
-        else
-        {
-            ReportTypingBlocked();
-        }
-
+        // Committed now, before the typing starts. Moving the tracker on
+        // straight away also bumps its version, which cancels any correction
+        // that was already in flight for the word being replaced.
+        _services.Learning.RecordWord(word, previous);
+        _tracker.AcceptWord(word);
         HidePopup();
+
+        Task.Run(() =>
+        {
+            TextInjector.InjectionResult sent = ReplaceHoldingKeys(typed, replacement + " ");
+
+            Log(sent);
+
+            if (!sent.Ok)
+            {
+                ReportTypingBlocked();
+            }
+        });
+
+        return true;
+    }
+
+    // Notes how a replacement went, when the user has asked for that. Counts
+    // only, never any text. Time O(1), and nothing at all when it is off.
+    private void Log(TextInjector.InjectionResult sent)
+    {
+        // Checked here, before the process lookup, because this runs while
+        // the person's keys are being held and that lookup is not free.
+        if (!_services.Settings.Diagnostics)
+        {
+            return;
+        }
+
+        InjectionLog.Record(
+            true,
+            PrivacyGuard.GetForegroundProcessName(),
+            sent);
+    }
+
+    // Replaces a word in the app in front, keeping the person's own typing
+    // out of the middle of it.
+    //
+    // Sending backspaces and letters takes roughly fifteen milliseconds. A key
+    // pressed inside that window used to land between ours, which is what
+    // produced "wworld" and "wlord". The hook holds any letter typed during
+    // the replacement and hands it back here, and it is then typed properly
+    // afterwards, so nothing is lost and nothing is scrambled.
+    //
+    // The hold is ended in a finally block. If it were ever left on, letters
+    // would stop reaching the app, so that is not left to chance.
+    // Time O(n), about fifteen milliseconds.
+    private TextInjector.InjectionResult ReplaceHoldingKeys(string typed, string replacement)
+    {
+        _hook.Gate.Begin();
+
+        try
+        {
+            return TextInjector.Replace(typed, replacement);
+        }
+        finally
+        {
+            _hook.Gate.End(ReplayHeld);
+        }
+    }
+
+    // Puts back whatever the person typed while a replacement was going in.
+    // Almost always nothing. Called by the gate with holding still on, so
+    // anything typed while this runs waits its turn behind these.
+    // Time O(n) over the few keys held.
+    private void ReplayHeld(string keys)
+    {
+        foreach (char c in keys)
+        {
+            // Sent to the app, and put through the tracker as well, so the
+            // word being followed stays in step with what is on screen. The
+            // tracker is skipped when quiet, exactly as for a live key.
+            bool follow = !IsQuiet();
+
+            if (c == KeyHoldGate.Backspace)
+            {
+                TextInjector.TypeBackspace();
+
+                if (follow)
+                {
+                    HandleBackspace();
+                }
+            }
+            else
+            {
+                TextInjector.TypeCharacter(c);
+
+                if (follow)
+                {
+                    HandleTypedCharacter(c);
+                }
+            }
+        }
     }
 
     // Says once, and only once, that Windows would not let us type. Saying it
@@ -610,6 +890,7 @@ public class SystemWideController : IDisposable
 
         _lastClick = where;
         _tracker.Reset();
+        _session.End();
         _frozenAnchor = null;
         HidePopup();
     }
@@ -654,23 +935,45 @@ public class SystemWideController : IDisposable
 
         _lastWindow = window;
         _tracker.Reset();
+        _session.End();
         _frozenAnchor = null;
 
         // The click that placed the caret belongs to the window we just left.
         _lastClick = null;
     }
 
-    // Reads the cached answer. This runs on the hook thread, so it must be a
-    // plain field read and nothing more.
-    //
-    // It used to ask Windows on every single keystroke, which meant a blocking
-    // call into another program in the middle of the input path. That was slow
-    // and, worse, browsers answered nonsense, so the word being typed was
-    // thrown away on every key. The checking now happens on a timer instead.
+    // True when SmartKeyboard should keep completely out of the way, for any
+    // reason. Nothing is watched, nothing is suggested, and no key is
+    // swallowed, so the app in front behaves exactly as if we were not here.
     // Time O(1).
-    private bool PausedForPrivacy()
+    private bool IsQuiet()
     {
-        return _pausedForPrivacy;
+        return _pausedForPrivacy || _inCodeWindow;
+    }
+
+    // Takes the box away once the user has stopped typing.
+    //
+    // This runs on the timer that was already there for the privacy check, so
+    // it costs no extra thread and nothing on the keyboard path. Without it a
+    // list of suggestions stays on screen until the next key, which is what
+    // made it feel like the box was up whether or not anyone was writing.
+    // Time O(1).
+    private void CheckIdle(object? sender, EventArgs e)
+    {
+        if (_popupShowing && !_session.IsLive(DateTime.UtcNow))
+        {
+            HidePopup();
+        }
+    }
+
+    // Notes why the box was or was not shown, when the user has asked for a
+    // record. Counts and window classes only, never a letter of what was
+    // typed: "len" is a length. Time O(1), and nothing at all when off.
+    private void LogPopup(
+        SuggestionPolicy.Refusal refusal, string kind, int prefixLength, int words, string controlClass)
+    {
+        InjectionLog.RecordPopup(
+            _services.Settings.Diagnostics, refusal, kind, prefixLength, words, controlClass);
     }
 
     // Looks at whether a password may be on screen. Runs on its own timer,
@@ -679,24 +982,36 @@ public class SystemWideController : IDisposable
     private void CheckPrivacy(object? sender, EventArgs e)
     {
         bool sensitive;
+        bool code;
 
         try
         {
-            sensitive = PrivacyGuard.ShouldPause();
+            // A reading that failed tells us nothing, so the old answer is
+            // kept rather than flipping the state. Flipping resets the word
+            // being typed, and that costs the user a correction for no
+            // reason at all.
+            sensitive = PrivacyGuard.Look() ?? _pausedForPrivacy;
+            code = PrivacyGuard.IsCodeWindow();
         }
         catch (Exception)
         {
             sensitive = true;
+            code = false;
         }
 
-        if (sensitive == _pausedForPrivacy)
+        if (sensitive == _pausedForPrivacy && code == _inCodeWindow)
         {
             return;
         }
 
-        _pausedForPrivacy = sensitive;
+        bool wasQuiet = IsQuiet();
 
-        if (sensitive)
+        _pausedForPrivacy = sensitive;
+        _inCodeWindow = code;
+
+        // Whatever was being typed belonged to the window we were watching
+        // before, so it is dropped on the way in and on the way out.
+        if (IsQuiet() != wasQuiet)
         {
             _tracker.Reset();
             HidePopup();

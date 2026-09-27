@@ -1,79 +1,131 @@
+using SmartKeyboard.Core.Engine;
+
 namespace SmartKeyboard.App.SystemWide;
 
 /// <summary>
 /// Types into whichever app is in front, using SendInput.
 ///
-/// To finish a word it first sends as many Backspaces as the user has already
-/// typed, then sends the whole word. Sending only the missing letters would be
-/// shorter, but it breaks the moment capitalisation differs ("teh" to "The"),
-/// so replacing the lot is the version that always works.
+/// Two rules here, and the second one was learned the hard way.
 ///
-/// Characters are sent as Unicode rather than as key codes. That way the right
+///   1. Send as few keys as possible. ReplacementPlan keeps the letters that
+///      are already correct, so finishing "wor" into "world" sends no
+///      backspaces at all rather than three, and a key never sent cannot go
+///      astray. Every key also carries a real scan code, because a Backspace
+///      sent with a scan code of zero can be dropped by a Chromium window
+///      without a trace, while Unicode letters take a different path and
+///      arrive regardless.
+///
+///   2. Send the whole replacement in ONE call to SendInput. This is not a
+///      tidiness point, it is the only thing keeping the user's own typing
+///      out of the middle of ours. Windows guarantees that the events in a
+///      single SendInput call are not interspersed with anything else,
+///      including keys the person is pressing at that moment. Split across
+///      several calls, that guarantee is gone.
+///
+/// An earlier version split the deletes from the letters and slept between
+/// them, on the theory that a slow app needed time to keep up. It gave that
+/// guarantee away, and since a correction starts about 90 ms after the space,
+/// the next word was often already being typed. The user's keystrokes landed
+/// in the middle of ours and came out as "wlord wworld". The diagnostics log
+/// is what settled it: Windows had accepted every keystroke, 10 of 10 and
+/// 22 of 22, so nothing was being refused or dropped. They were simply
+/// arriving mixed together.
+///
+/// Characters are sent as Unicode rather than as key codes, so the right
 /// letter arrives whatever keyboard layout the user has.
 ///
-/// Every key sent carries NativeMethods.InjectedSignature, so our own keyboard
-/// hook can tell them apart from a person typing and ignore them.
+/// Every key carries NativeMethods.InjectedSignature, so our own hook can
+/// tell them apart from a person typing and ignore them.
 /// </summary>
 public static class TextInjector
 {
     /// <summary>The most characters that will ever be sent at once.</summary>
     private const int MaxLength = 100;
 
+    /// <summary>What a replacement attempt did, for the optional log.</summary>
+    public readonly record struct InjectionResult(bool Ok, int Deleted, int Typed, int Sent, int Expected);
+
     // Replaces the word being typed with a different one.
     // Returns false when Windows refused the input.
-    // Time O(n) where n is the letters deleted plus the letters typed.
+    // Time O(n), and it is one call, so nothing can get in between.
     public static bool ReplaceWord(string typedSoFar, string replacement)
     {
-        if (string.IsNullOrEmpty(replacement) || replacement.Length > MaxLength)
+        return Replace(typedSoFar, replacement).Ok;
+    }
+
+    // The same, but says how much was sent, so the diagnostics log can tell a
+    // refusal by Windows apart from an app quietly dropping the keys. That
+    // distinction is what found the last bug.
+    // Time as above.
+    public static InjectionResult Replace(string typedSoFar, string replacement)
+    {
+        string from = typedSoFar ?? string.Empty;
+
+        if (string.IsNullOrEmpty(replacement) || replacement.Length > MaxLength || from.Length > MaxLength)
         {
-            return false;
+            return new InjectionResult(false, 0, 0, 0, 0);
         }
 
-        int toDelete = typedSoFar?.Length ?? 0;
-        if (toDelete > MaxLength)
+        // Only the tail that actually differs is touched.
+        ReplacementPlan plan = ReplacementPlan.Compute(from, replacement);
+
+        if (plan.IsNothingToDo)
         {
-            return false;
+            return new InjectionResult(true, 0, 0, 0, 0);
         }
 
-        var inputs = new List<NativeMethods.Input>(((toDelete + replacement.Length) * 2) + 2);
+        var inputs = new List<NativeMethods.Input>((plan.Backspaces + plan.ToType.Length) * 2);
 
-        for (int i = 0; i < toDelete; i++)
+        for (int i = 0; i < plan.Backspaces; i++)
         {
             inputs.Add(KeyDown(NativeMethods.VK_BACK));
             inputs.Add(KeyUp(NativeMethods.VK_BACK));
         }
 
-        foreach (char c in replacement)
+        foreach (char c in plan.ToType)
         {
             inputs.Add(UnicodeDown(c));
             inputs.Add(UnicodeUp(c));
         }
 
-        return Send(inputs);
+        int sent = Send(inputs.ToArray());
+
+        return new InjectionResult(
+            sent == inputs.Count, plan.Backspaces, plan.ToType.Length, sent, inputs.Count);
     }
 
     /// <summary>Types a single character, such as the space after a word.</summary>
     // Time O(1).
     public static bool TypeCharacter(char c)
     {
-        return Send(new List<NativeMethods.Input> { UnicodeDown(c), UnicodeUp(c) });
+        return Send(new[] { UnicodeDown(c), UnicodeUp(c) }) == 2;
     }
 
-    // Hands the list to Windows in one go, so nothing can be typed in between.
-    // Time O(n).
-    private static bool Send(List<NativeMethods.Input> inputs)
+    /// <summary>Sends one Backspace, such as one held back during a replacement.</summary>
+    // Time O(1).
+    public static bool TypeBackspace()
     {
-        if (inputs.Count == 0)
+        return Send(new[] { KeyDown(NativeMethods.VK_BACK), KeyUp(NativeMethods.VK_BACK) }) == 2;
+    }
+
+    // Hands a block to Windows and reports how many it accepted. Time O(n).
+    private static int Send(NativeMethods.Input[] inputs)
+    {
+        if (inputs.Length == 0)
         {
-            return true;
+            return 0;
         }
 
-        NativeMethods.Input[] array = inputs.ToArray();
         int size = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.Input>();
 
-        uint sent = NativeMethods.SendInput((uint)array.Length, array, size);
+        return (int)NativeMethods.SendInput((uint)inputs.Length, inputs, size);
+    }
 
-        return sent == array.Length;
+    // The scan code Windows uses for this key on the current layout. Sending
+    // zero here is what let Chromium drop our backspaces. Time O(1).
+    private static ushort ScanCodeFor(ushort virtualKey)
+    {
+        return (ushort)NativeMethods.MapVirtualKey(virtualKey, NativeMethods.MAPVK_VK_TO_VSC);
     }
 
     // Time O(1).
@@ -85,6 +137,7 @@ public static class TextInjector
             Keyboard = new NativeMethods.KeyboardInput
             {
                 VirtualKey = virtualKey,
+                ScanCode = ScanCodeFor(virtualKey),
                 ExtraInfo = NativeMethods.InjectedSignature,
             },
         },
@@ -99,6 +152,7 @@ public static class TextInjector
             Keyboard = new NativeMethods.KeyboardInput
             {
                 VirtualKey = virtualKey,
+                ScanCode = ScanCodeFor(virtualKey),
                 Flags = NativeMethods.KEYEVENTF_KEYUP,
                 ExtraInfo = NativeMethods.InjectedSignature,
             },

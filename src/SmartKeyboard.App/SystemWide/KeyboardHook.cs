@@ -20,6 +20,7 @@ namespace SmartKeyboard.App.SystemWide;
 public class KeyboardHook : IDisposable
 {
     private readonly NativeMethods.HookProc _callback;
+
     private IntPtr _hook = IntPtr.Zero;
 
     public KeyboardHook()
@@ -44,6 +45,18 @@ public class KeyboardHook : IDisposable
     /// and for the privacy guard when a password box has focus.
     /// </summary>
     public bool IsPaused { get; set; }
+
+    /// <summary>
+    /// Holds the person's letters and Backspaces back while a word is being
+    /// replaced, and hands them over afterwards, in order.
+    ///
+    /// Replacing means sending backspaces and then letters, and a key typed
+    /// inside that window lands in the middle of it. That is what turned
+    /// "world" into "wworld" and "wlord": the person's own keystroke arrived
+    /// between ours. The rules for holding and replaying live in KeyHoldGate,
+    /// in Core, where they can be tested.
+    /// </summary>
+    public SmartKeyboard.Core.Engine.KeyHoldGate Gate { get; } = new();
 
     // Installs the hook. Safe to call twice. Time O(1).
     public void Start()
@@ -152,8 +165,11 @@ public class KeyboardHook : IDisposable
             case Keys.Delete:
                 return Raise(ControlKeyKind.CaretMoved, key);
 
+            // Held like a letter during a replacement. Let through at once, it
+            // would reach the app ahead of letters typed before it.
             case Keys.Back:
-                return Raise(ControlKeyKind.Backspace, key);
+                return Gate.TryHold(SmartKeyboard.Core.Engine.KeyHoldGate.Backspace)
+                    || Raise(ControlKeyKind.Backspace, key);
         }
 
         // Ctrl or Alt held means a shortcut, not typing. Shift is fine.
@@ -165,10 +181,25 @@ public class KeyboardHook : IDisposable
         }
 
         char? typed = KeyTranslator.ToCharacter((uint)key, scanCode);
-        if (typed.HasValue)
+        if (!typed.HasValue)
         {
-            KeyTyped?.Invoke(this, new TypedKeyEventArgs(typed.Value, key));
+            return false;
         }
+
+        if (Gate.TryHold(typed.Value))
+        {
+            // A replacement is going in at this moment, and this letter is
+            // being kept back for a few milliseconds rather than allowed to
+            // land in the middle of it.
+            return true;
+        }
+
+        // Falling through means either nothing is being replaced, or the hold
+        // buffer is full and the letter is going straight through after all.
+        // Either way the listener must be told, or the word being followed
+        // would fall behind what is on screen and the next replacement would
+        // delete the wrong number of letters.
+        KeyTyped?.Invoke(this, new TypedKeyEventArgs(typed.Value, key));
 
         // Letters are never swallowed. The user must always see what they type.
         return false;

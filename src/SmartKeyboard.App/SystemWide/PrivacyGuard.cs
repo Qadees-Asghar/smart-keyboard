@@ -36,6 +36,23 @@ public static class PrivacyGuard
     // Time O(1) plus the length of the window title.
     public static bool ShouldPause()
     {
+        return Look() ?? true;
+    }
+
+    /// <summary>
+    /// True or false when we managed to look, null when the check itself
+    /// failed and we learned nothing.
+    ///
+    /// The difference matters. A failed reading used to be reported as "a
+    /// password is on screen", which paused SmartKeyboard, threw away the
+    /// word being typed and cost the user a correction. Erring towards
+    /// pausing is right when we looked and are unsure; it is not right when
+    /// we did not manage to look at all, because that turns a passing glitch
+    /// into lost work.
+    /// </summary>
+    // Time O(1) plus the length of the window title.
+    public static bool? Look()
+    {
         try
         {
             if (IsPasswordBoxFocused())
@@ -47,9 +64,53 @@ public static class PrivacyGuard
         }
         catch (Exception)
         {
-            // If we cannot tell, stop watching. Being useless is better than
-            // being careless with someone's password.
-            return true;
+            return null;
+        }
+    }
+
+    // True when the app in front is a code editor or a terminal.
+    //
+    // Asked on the same timer as the password check, never on the hook
+    // thread, because reading another program's name is not free.
+    // Time O(1) plus one lookup by process id.
+    public static bool IsCodeWindow()
+    {
+        return SmartKeyboard.Core.Engine.CodeWindowDetector.IsCodeWindow(GetForegroundProcessName());
+    }
+
+    /// <summary>
+    /// The name of the program that owns the window in front, or empty.
+    ///
+    /// The name is used rather than the window title because a title changes
+    /// with whatever file is open, while a name does not change at all while
+    /// the program runs.
+    /// </summary>
+    // Time O(1) plus one lookup by process id.
+    public static string GetForegroundProcessName()
+    {
+        try
+        {
+            IntPtr window = NativeMethods.GetForegroundWindow();
+            if (window == IntPtr.Zero)
+            {
+                return string.Empty;
+            }
+
+            NativeMethods.GetWindowThreadProcessId(window, out uint processId);
+            if (processId == 0)
+            {
+                return string.Empty;
+            }
+
+            using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+            return process.ProcessName;
+        }
+        catch (Exception)
+        {
+            // The program closed, or it is one we are not allowed to ask
+            // about. Either way we simply do not know, and not knowing must
+            // not stop SmartKeyboard working everywhere else.
+            return string.Empty;
         }
     }
 

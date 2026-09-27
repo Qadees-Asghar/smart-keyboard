@@ -91,6 +91,72 @@ public static class CaretLocator
         return NativeMethods.GetGUIThreadInfo(threadId, ref info) ? info.Focus : IntPtr.Zero;
     }
 
+    /// <summary>What the focused thing looks like, for deciding if it takes text.</summary>
+    public readonly struct TextTarget
+    {
+        public TextTarget(bool hasCaret, bool hasFocus, string controlClass)
+        {
+            HasCaret = hasCaret;
+            HasFocus = hasFocus;
+            ControlClass = controlClass;
+        }
+
+        /// <summary>True when the app reports a real caret.</summary>
+        public bool HasCaret { get; }
+
+        /// <summary>True when anything at all has keyboard focus.</summary>
+        public bool HasFocus { get; }
+
+        /// <summary>The window class of the focused control, in lower case.</summary>
+        public string ControlClass { get; }
+    }
+
+    // Gathers the three signals that say whether typing would go anywhere,
+    // in one pass, because each of them costs a call into another program.
+    // The judging itself is in Core, where it can be tested.
+    // Time O(1), a handful of Windows calls.
+    public static TextTarget DescribeTarget()
+    {
+        try
+        {
+            IntPtr window = NativeMethods.GetForegroundWindow();
+            if (window == IntPtr.Zero)
+            {
+                return new TextTarget(false, false, string.Empty);
+            }
+
+            uint threadId = NativeMethods.GetWindowThreadProcessId(window, out _);
+
+            var info = new NativeMethods.GuiThreadInfo();
+            info.Size = System.Runtime.InteropServices.Marshal.SizeOf(info);
+
+            if (!NativeMethods.GetGUIThreadInfo(threadId, ref info) || info.Focus == IntPtr.Zero)
+            {
+                return new TextTarget(false, false, string.Empty);
+            }
+
+            NativeMethods.Rect box = info.CaretRect;
+            bool hasCaret = box.Left != 0 || box.Top != 0 || box.Right != 0 || box.Bottom != 0;
+
+            return new TextTarget(hasCaret, true, ReadClassName(info.Focus));
+        }
+        catch (Exception)
+        {
+            // Cannot tell. Say nothing has focus rather than guess wrongly.
+            return new TextTarget(false, false, string.Empty);
+        }
+    }
+
+    // The window class of a control, in lower case. Time O(1).
+    private static string ReadClassName(IntPtr control)
+    {
+        var name = new StringBuilder(256);
+
+        return NativeMethods.GetClassName(control, name, name.Capacity) == 0
+            ? string.Empty
+            : name.ToString().ToLowerInvariant();
+    }
+
     // Asks Windows where the caret is, in screen coordinates.
     // Time O(1).
     private static bool TryGetCaret(out Point location)

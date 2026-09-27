@@ -14,6 +14,7 @@ public class SettingsForm : Form
     private readonly CheckBox _learning;
     private readonly CheckBox _predictions;
     private readonly CheckBox _spellCheck;
+    private readonly CheckBox _diagnostics;
     private readonly NumericUpDown _suggestionCount;
 
     public SettingsForm(AppSettings settings)
@@ -22,7 +23,7 @@ public class SettingsForm : Form
 
         Text = "Settings";
         Width = 460;
-        Height = 470;
+        Height = 600;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MinimizeBox = false;
@@ -61,6 +62,11 @@ public class SettingsForm : Form
             "Counts the words and pairs you use. Never learns a typo.",
             _working.LearningEnabled);
 
+        _diagnostics = Check(
+            "Keep a record of word replacements",
+            "Writes counts only to inject.log, never any text. For working out why a fix did not land.",
+            _working.Diagnostics);
+
         _suggestionCount = new NumericUpDown
         {
             Minimum = 1,
@@ -73,7 +79,11 @@ public class SettingsForm : Form
             BorderStyle = BorderStyle.FixedSingle
         };
 
+        // Order matters. The docked button row is added first so it claims
+        // the bottom of the window, and the scrolling list of options then
+        // fills whatever is left above it.
         Controls.Add(BuildLayout());
+        Controls.Add(BuildButtonBar());
     }
 
     /// <summary>The options as the user left them. Only valid after OK.</summary>
@@ -105,8 +115,7 @@ public class SettingsForm : Form
 
         layout.Controls.Add(SectionTitle("System Wide Mode"));
         layout.Controls.Add(_systemWideAutocorrect);
-
-        layout.Controls.Add(ButtonRow());
+        layout.Controls.Add(_diagnostics);
 
         foreach (Control control in layout.Controls)
         {
@@ -166,6 +175,28 @@ public class SettingsForm : Form
         return row;
     }
 
+    // Save and Cancel, pinned to the bottom of the window.
+    //
+    // They used to be the last row inside the scrolling list, which was a real
+    // bug: once there were enough options to overflow the window, Save scrolled
+    // out of sight. Ticking a box and then being unable to save it looks
+    // exactly like the option refusing to turn on. Docked here, the buttons
+    // cannot go missing however many options are added later.
+    // Time O(1).
+    private Control BuildButtonBar()
+    {
+        var bar = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 56,
+            Padding = new Padding(16, 10, 16, 10),
+            BackColor = BrandTheme.Light
+        };
+
+        bar.Controls.Add(ButtonRow());
+        return bar;
+    }
+
     // The OK and Cancel buttons. Time O(1).
     private Control ButtonRow()
     {
@@ -173,8 +204,7 @@ public class SettingsForm : Form
         {
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            Margin = new Padding(0, 16, 0, 0)
+            WrapContents = false
         };
 
         Button save = Styled("Save", primary: true);
@@ -211,6 +241,7 @@ public class SettingsForm : Form
         _working.ShowPredictions = _predictions.Checked;
         _working.SpellCheckEnabled = _spellCheck.Checked;
         _working.SuggestionCount = (int)_suggestionCount.Value;
+        _working.Diagnostics = _diagnostics.Checked;
     }
 
     // A button in the brand style. Time O(1).

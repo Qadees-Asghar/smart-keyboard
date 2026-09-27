@@ -26,6 +26,31 @@ Two ways to use it:
 - **System Wide Mode**, a tray program that works in any app, with a popup
   that never steals focus
 
+System Wide Mode tries hard to stay out of the way:
+
+- it **switches off in code editors and terminals**, because code is not
+  English and the popup would take Enter and the arrow keys away from the keys
+  an editor needs most
+- it stops completely whenever a **password box** has focus
+- it only appears once **two letters** of a word are typed, and only when
+  something that takes text has focus, so a key pressed on the desktop does
+  nothing
+- it **disappears on its own** a couple of seconds after you stop typing
+- while a word is being fixed, the next letters you type are held for about a
+  tenth of a second and then put in, so your typing can never land in the
+  middle of a correction
+- **a word is only ever replaced if SmartKeyboard watched it from its first
+  letter.** It cannot read the other app, so it follows what you type key by
+  key. Anything that loses that thread, a click, an arrow key, switching
+  window, means the letters it counted may only be the tail of a longer word,
+  and replacing on that count would corrupt the line. So it stays quiet for
+  that one word and picks up again at the next space
+
+One limit that cannot be fixed from here: inside a browser there is no way to
+tell a text box from the rest of the page. Chromium reports no caret and gives
+one window class for everything, so a stray letter pressed in a browser with
+no text box focused can still bring the box up.
+
 ## Running it
 
 You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Windows.
@@ -33,12 +58,20 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Windows.
 Double click **`run.cmd`**, or from this folder:
 
 ```
-dotnet build
-start src\SmartKeyboard.App\bin\Debug\net10.0-windows\SmartKeyboard.App.exe
+dotnet build -c Release
+start src\SmartKeyboard.App\bin\Release\net10.0-windows\SmartKeyboard.App.exe
 ```
 
-There is no window at startup. SmartKeyboard lives in the **tray, by the
-clock**. Right click it for the editor, settings and exit.
+There is no ordinary window. SmartKeyboard lives in the **tray, by the
+clock**. The icon appears straight away and says "Loading dictionary..." for
+a moment while it reads the word list. Right click it for the editor,
+settings and exit.
+
+**Only one copy ever runs.** Start it again and the new one closes itself and
+makes the running one flash a note instead. `run.cmd` goes further and closes
+the running copy before it builds, because Windows locks the program file
+while it runs, so building on top of a running copy would fail and leave you
+using the old one without saying so.
 
 Use `start`, not `dotnet run`. With `dotnet run` the program belongs to that
 terminal and closing it closes SmartKeyboard.
@@ -58,7 +91,7 @@ terminal and closing it closes SmartKeyboard.
 ```
 src/SmartKeyboard.Core    the data structures and the engine, no Windows in it
 src/SmartKeyboard.App     both user interfaces and all the Windows code
-tests/SmartKeyboard.Tests 520 tests
+tests/SmartKeyboard.Tests 635 tests
 tools/                    builds the dictionary from public word lists
 docs/DESIGN.md            how all of it works, and why
 ```
@@ -72,7 +105,7 @@ tested on its own and both modes share exactly the same code.
 dotnet test
 ```
 
-520 tests. The BK Tree is checked against a brute force scan so a pruning bug
+635 tests. The BK Tree is checked against a brute force scan so a pruning bug
 cannot hide, and autocorrect is measured against 4,061 misspellings from
 Wikipedia's list of common misspellings.
 

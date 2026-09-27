@@ -18,10 +18,11 @@ public sealed class AppServices
 {
     private static AppServices? _current;
 
-    private AppServices(FileWordRepository repository, SuggestionEngine suggestions)
+    private AppServices(FileWordRepository repository, SuggestionEngine suggestions, AppSettings settings)
     {
         Repository = repository;
         Suggestions = suggestions;
+        Settings = settings;
         Tree = new BKTree();
         Users = new UserDictionary(repository, DictionaryLoader.Instance.Words, Tree);
         Predictions = new NextWordPredictor(
@@ -57,7 +58,7 @@ public sealed class AppServices
     public LearningEngine Learning { get; }
 
     /// <summary>The options the user chose, saved between runs.</summary>
-    public AppSettings Settings { get; } = AppSettings.Load();
+    public AppSettings Settings { get; }
 
     public DictionaryLoader Dictionary => DictionaryLoader.Instance;
 
@@ -81,8 +82,22 @@ public sealed class AppServices
 
     // Reads the dictionary files, then starts building the typo tree in the
     // background. Time is the same as DictionaryLoader.Load.
+    //
+    // This takes real time, seconds on a cold machine, because it parses
+    // about 5 MB of text. Callers that have a window to keep alive should run
+    // it on a background thread.
     public static AppServices Start()
     {
+        return Start(AppSettings.Load());
+    }
+
+    // The same, but using settings that have already been read. The tray icon
+    // needs the settings before the dictionary is ready, and loading the file
+    // twice would give two objects that could drift apart.
+    public static AppServices Start(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
         var repository = new FileWordRepository(
             AppPaths.WordsFile,
             AppPaths.BigramsFile,
@@ -97,7 +112,7 @@ public sealed class AppServices
             DictionaryLoader.Instance.Words);
 
         var suggestions = new SuggestionEngine(DictionaryLoader.Instance.Words, ranking);
-        var services = new AppServices(repository, suggestions);
+        var services = new AppServices(repository, suggestions, settings);
 
         // The user's own words go into the Trie now, so they are suggested
         // from the very first keystroke. They reach the BK tree below.

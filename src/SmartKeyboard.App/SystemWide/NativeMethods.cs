@@ -236,6 +236,20 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint SendInput(uint count, Input[] inputs, int size);
 
+    /// <summary>Asks for the scan code that matches a virtual key.</summary>
+    public const uint MAPVK_VK_TO_VSC = 0;
+
+    /// <summary>
+    /// Turns a virtual key into the scan code the keyboard would have sent.
+    ///
+    /// Needed because a key injected with a scan code of zero is not always
+    /// recognised. Chromium in particular works out which key it was from the
+    /// scan code, so our Backspaces were being dropped while the letters,
+    /// which are sent as Unicode and skip that path, arrived fine.
+    /// </summary>
+    [DllImport("user32.dll")]
+    public static extern uint MapVirtualKey(uint code, uint mapType);
+
     // The window style that stops a window ever taking focus.
 
     /// <summary>Windows asks a window whether a click should activate it.</summary>
@@ -262,4 +276,28 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool UnregisterHotKey(IntPtr window, int id);
+
+    // Telling a copy that is already running that someone tried to start
+    // another one.
+
+    /// <summary>Send to this handle and every top level window gets it.</summary>
+    public static readonly IntPtr HWND_BROADCAST = new(0xFFFF);
+
+    /// <summary>
+    /// A message number that means "you are already running".
+    ///
+    /// RegisterWindowMessage hands out the same number to everyone who asks
+    /// for the same name, and a number no other program is using. That is
+    /// what makes it safe to broadcast: only a copy of SmartKeyboard knows
+    /// what this number means, and every other window ignores it.
+    /// </summary>
+    public static readonly uint AlreadyRunningMessage =
+        RegisterWindowMessage("SmartKeyboard.AlreadyRunning.v1");
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint RegisterWindowMessage(string name);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 }

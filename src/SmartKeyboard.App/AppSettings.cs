@@ -31,6 +31,15 @@ public class AppSettings
     /// <summary>Mark unknown words in red.</summary>
     public bool SpellCheckEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Write a line to inject.log every time a word is replaced in another
+    /// app. Off by default, and it records counts only, never any text, so
+    /// turning it on cannot leak what was typed. It exists to tell two
+    /// different failures apart: Windows refusing the keystrokes, and the
+    /// other app quietly dropping them.
+    /// </summary>
+    public bool Diagnostics { get; set; }
+
     private int _suggestionCount = 5;
 
     /// <summary>How many suggestions to show, between 1 and 10.</summary>
@@ -91,6 +100,7 @@ public class AppSettings
             $"showPredictions={ShowPredictions}",
             $"spellCheck={SpellCheckEnabled}",
             $"suggestionCount={SuggestionCount}",
+            $"diagnostics={Diagnostics}",
         };
 
         File.WriteAllLines(FilePath, lines);
@@ -107,6 +117,9 @@ public class AppSettings
                 break;
             case "fixMessyWords":
                 FixMessyWords = ReadBool(value, FixMessyWords);
+                break;
+            case "diagnostics":
+                Diagnostics = ReadBool(value, Diagnostics);
                 break;
             case "systemWideAutocorrect":
                 SystemWideAutocorrect = ReadBool(value, SystemWideAutocorrect);
@@ -135,18 +148,19 @@ public class AppSettings
 
     /// <summary>A copy, so a Settings window can be cancelled without harm.</summary>
     // Time O(1).
+    // Built on CopyFrom rather than listing the options again.
+    //
+    // It used to be a second list, and the two drifted: a new option was added
+    // to CopyFrom and forgotten here, so the Settings window always opened
+    // with that option switched off however it had been saved. Ticking a box
+    // and finding it unticked next time looks exactly like a broken option.
+    // With one list there is only one place to forget.
     public AppSettings Copy()
     {
-        return new AppSettings
-        {
-            AutocorrectEnabled = AutocorrectEnabled,
-            FixMessyWords = FixMessyWords,
-            SystemWideAutocorrect = SystemWideAutocorrect,
-            LearningEnabled = LearningEnabled,
-            ShowPredictions = ShowPredictions,
-            SpellCheckEnabled = SpellCheckEnabled,
-            SuggestionCount = SuggestionCount,
-        };
+        var copy = new AppSettings();
+        copy.CopyFrom(this);
+
+        return copy;
     }
 
     /// <summary>Copies another set of options into this one.</summary>
@@ -160,5 +174,6 @@ public class AppSettings
         ShowPredictions = other.ShowPredictions;
         SpellCheckEnabled = other.SpellCheckEnabled;
         SuggestionCount = other.SuggestionCount;
+        Diagnostics = other.Diagnostics;
     }
 }
