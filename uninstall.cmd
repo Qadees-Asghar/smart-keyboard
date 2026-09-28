@@ -25,9 +25,10 @@ if not exist "%EXE%" (
 
 call "%~dp0tools\close_running.cmd"
 
-echo Removing the desktop and Start menu icons...
+echo Removing the desktop, Start menu and project folder icons...
+set "SK_HERE=%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {" ^
+  "foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'), $env:SK_HERE)) {" ^
   "  Remove-Item -LiteralPath (Join-Path $folder 'SmartKeyboard.lnk') -ErrorAction SilentlyContinue }"
 
 echo Stopping it from starting with Windows...

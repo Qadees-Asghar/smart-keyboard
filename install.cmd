@@ -7,7 +7,8 @@ rem
 rem What it does:
 rem   1. Closes SmartKeyboard if it is running, so its files can be replaced.
 rem   2. Builds it into the install folder.
-rem   3. Puts a SmartKeyboard icon on the desktop and in the Start menu.
+rem   3. Puts a SmartKeyboard icon on the desktop, in the Start menu, and in
+rem      this folder next to run.cmd.
 rem   4. Starts it with Windows. Only on a first install, or when that was
 rem      already on: updating never turns back on something you switched off.
 rem   5. Starts it, quietly, in the tray.
@@ -39,12 +40,13 @@ if errorlevel 1 goto failed
 if not exist "%EXE%" goto failed
 if not exist "%TARGET%\Data\words.txt" goto failed
 
-echo Adding the desktop and Start menu icons...
+echo Adding the desktop, Start menu and project folder icons...
 set "SK_EXE=%EXE%"
 set "SK_DIR=%TARGET%"
+set "SK_HERE=%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$shell = New-Object -ComObject WScript.Shell;" ^
-  "foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {" ^
+  "foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'), $env:SK_HERE)) {" ^
   "  $link = $shell.CreateShortcut((Join-Path $folder 'SmartKeyboard.lnk'));" ^
   "  $link.TargetPath = $env:SK_EXE;" ^
   "  $link.WorkingDirectory = $env:SK_DIR;" ^

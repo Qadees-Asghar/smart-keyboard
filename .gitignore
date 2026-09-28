@@ -15,3 +15,7 @@ tools/.cache/
 # Test results
 TestResults/
 *.trx
+
+# The SmartKeyboard shortcut install.cmd puts here. It points at this
+# machine's install folder, so it means nothing anywhere else.
+/SmartKeyboard.lnk

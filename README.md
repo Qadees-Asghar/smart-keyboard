@@ -56,8 +56,9 @@ no text box focused can still bring the box up.
 You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Windows.
 
 Double click **`install.cmd`**. It builds SmartKeyboard into
-`D:\tools\SmartKeyboard`, puts a **SmartKeyboard icon on the desktop and in
-the Start menu**, sets it to **start with Windows**, and starts it. To install
+`D:\tools\SmartKeyboard`, puts a **SmartKeyboard icon on the desktop, in the
+Start menu and in this folder**, sets it to **start with Windows**, and starts
+it. To install
 somewhere else, run `install.cmd "E:\Apps\SmartKeyboard"`.
 
 - **Double click the desktop icon** to open the SmartKeyboard window. It
