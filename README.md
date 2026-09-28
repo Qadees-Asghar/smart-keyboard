@@ -51,7 +51,20 @@ tell a text box from the rest of the page. Chromium reports no caret and gives
 one window class for everything, so a stray letter pressed in a browser with
 no text box focused can still bring the box up.
 
-## Installing it
+## Download it (any Windows PC)
+
+Get **`SmartKeyboard-<version>-win-x64.zip`** from the
+[latest release](https://github.com/Qadees-Asghar/smart-keyboard/releases/latest),
+extract it, and double click **`Install SmartKeyboard.cmd`**. Nothing else is
+needed: the program carries its own .NET, and it installs for your Windows user
+only, so it does not ask for Administrator rights. It works on Windows 10 and
+11 on normal Intel and AMD PCs (x64).
+
+Windows says "Windows protected your PC" the first time, because the program is
+not signed with a paid certificate: click **More info**, then **Run anyway**.
+The zip's `README.txt` has the rest.
+
+## Installing it from the source code
 
 You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Windows.
 

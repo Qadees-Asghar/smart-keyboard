@@ -8,3 +8,6 @@
 *.ttf binary
 *.png binary
 *.ico binary
+
+# Opened in Notepad on other PCs, from the release zip.
+tools/release/README.txt text eol=crlf

@@ -19,3 +19,6 @@ TestResults/
 # The SmartKeyboard shortcut install.cmd puts here. It points at this
 # machine's install folder, so it means nothing anywhere else.
 /SmartKeyboard.lnk
+
+# Release zips built by tools\make_release.cmd, and Windows Sandbox test output.
+dist/

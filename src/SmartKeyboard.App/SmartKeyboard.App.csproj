@@ -10,6 +10,8 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The release version. tools\make_release.cmd names the zip after it. -->
+    <Version>1.0.0</Version>
     <!-- Drawn by tools\make_icon.ps1. Shown on the exe, the desktop shortcut
          and the taskbar. -->
     <ApplicationIcon>Assets\SmartKeyboard.ico</ApplicationIcon>
@@ -29,13 +31,18 @@
   <!-- The brand fonts ship with the program, so nothing has to be installed
        onto the machine. Both are Open Font License, licences included. -->
   <ItemGroup>
-    <None Include="Assets\Fonts\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\Fonts\**\*" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
-  <!-- The dictionary files must sit next to the exe so the app can read them. -->
+  <!-- The dictionary files must sit next to the exe so the app can read them.
+
+       ExcludeFromSingleFile, here and on the fonts, keeps them as real files in
+       the single-file release build (tools\make_release.cmd). Without it the
+       bundler packed the three Poppins fonts inside the exe, where BrandTheme,
+       which reads them from disk, silently fell back to a Windows font. -->
   <ItemGroup>
-    <None Update="Data\words.txt" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="Data\bigrams.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Data\words.txt" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <None Update="Data\bigrams.txt" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
 </Project>

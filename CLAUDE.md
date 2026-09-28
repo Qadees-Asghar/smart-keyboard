@@ -6,6 +6,19 @@
 - `run.cmd` is for development (tray only, `--background`). `install.cmd [folder]` installs or updates the real app (default `D:\tools\SmartKeyboard`). Both close a running copy through `tools\close_running.cmd`.
 - Close the app by setting the named event `SmartKeyboard.ExitRequested.v1`. `taskkill` without `/F` reports SUCCESS but never closes it, because its only window is hidden.
 
+## Releasing for other PCs
+1. Bump `<Version>` in `src/SmartKeyboard.App/SmartKeyboard.App.csproj`.
+2. Run `tools\make_release.cmd`. It runs the tests, then builds `dist\SmartKeyboard-<ver>-win-x64.zip`: a self-contained, single-file exe (no .NET needed), `Data\`, `Assets\`, and the scripts and README from `tools\release\`.
+3. Run `tools\sandbox\run_sandbox_test.ps1`. It installs, uses and uninstalls the zip inside Windows Sandbox, a clean PC with no .NET, and prints PASS/FAIL. Every line must pass.
+4. Commit and push, then `gh release create v<ver> dist\SmartKeyboard-<ver>-win-x64.zip`, so the tag points at the code that built the zip. Confirm with the user before publishing; the repo is public.
+- Files the app reads from disk (`Data\`, `Assets\Fonts\`) must carry `ExcludeFromSingleFile="true"` in the csproj. Without it the single-file bundler packed the Poppins fonts inside the exe, and they silently went missing.
+- The release installs to `%LOCALAPPDATA%\Programs\SmartKeyboard`, per user, with no admin. The developer `install.cmd` installs to `D:\tools\SmartKeyboard` and is separate.
+- Sandbox test traps, each of which cost a run:
+  - Windows Sandbox has no Notepad (it is a Store app), so the test compiles a small WPF `TestPad.exe` to type into.
+  - Never use a PowerShell-hosted window as the target. SmartKeyboard treats `powershell` as a code window and stays quiet.
+  - Never use a WinForms (.NET Framework) text box either. UI Automation sees it as a bare Pane with no TextPattern, so the first-word check can't read it. That is also a real limit: in such apps the first word after a click is skipped, safely.
+  - Run `.cmd` files through `Start-Process` with output redirected to a file. Windows PowerShell 5.1 mangles quoted paths passed to `cmd /c`, and a piped output stays open as long as the SmartKeyboard the installer started.
+
 ## Testing in real apps (System Wide Mode)
 - Use the Store version of Notepad on Windows 11 as the reference app. Read results back through UI Automation (`TextPattern.DocumentRange.GetText`).
 - Type with `SendInput` and real virtual-key codes, one key at a time. Do **not** use `WScript.Shell.SendKeys`: it toggled Caps Lock on during testing, and it types its own text in bursts that Notepad drops.
