@@ -10,6 +10,9 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Drawn by tools\make_icon.ps1. Shown on the exe, the desktop shortcut
+         and the taskbar. -->
+    <ApplicationIcon>Assets\SmartKeyboard.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 

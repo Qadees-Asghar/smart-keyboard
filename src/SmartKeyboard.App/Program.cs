@@ -1,12 +1,11 @@
 using SmartKeyboard.App.SystemWide;
+using SmartKeyboard.Core;
 
 namespace SmartKeyboard.App;
 
+// The command line flags, --editor and --background, live in LaunchOptions.
 internal static class Program
 {
-    /// <summary>Pass this on the command line to open only the editor.</summary>
-    private const string EditorOnlyFlag = "--editor";
-
     /// <summary>
     /// The name of the lock that keeps a second copy from starting.
     ///
@@ -31,12 +30,20 @@ internal static class Program
         {
             // Step aside, and nudge the copy that is already running into
             // showing itself. The user almost certainly started this one
-            // because they could not tell the first was there.
-            NativeMethods.PostMessage(
-                NativeMethods.HWND_BROADCAST,
-                NativeMethods.AlreadyRunningMessage,
-                IntPtr.Zero,
-                IntPtr.Zero);
+            // from the icon because they want the window.
+            //
+            // The named event is what the running copy listens for. The
+            // broadcast is only for a copy older than that, which never got
+            // it reliably anyway.
+            if (!InstanceSignal.Send(InstanceSignal.OpenRequested))
+            {
+                NativeMethods.PostMessage(
+                    NativeMethods.HWND_BROADCAST,
+                    NativeMethods.AlreadyRunningMessage,
+                    IntPtr.Zero,
+                    IntPtr.Zero);
+            }
+
             return;
         }
 
@@ -51,7 +58,9 @@ internal static class Program
         // happening. TrayController loads it in the background instead.
         AppSettings settings = AppSettings.Load();
 
-        if (args.Contains(EditorOnlyFlag, StringComparer.OrdinalIgnoreCase))
+        LaunchMode mode = LaunchOptions.Parse(args);
+
+        if (mode == LaunchMode.EditorOnly)
         {
             RunEditorOnly(settings);
         }
@@ -59,7 +68,11 @@ internal static class Program
         {
             // Normally the tray icon owns the program, so closing the editor
             // does not stop SmartKeyboard working in other apps.
-            Application.Run(new TrayController(settings));
+            //
+            // Started by a person, from the desktop icon or the Start menu,
+            // the editor opens as well, the way an app is expected to. Started
+            // by Windows at sign in, or by run.cmd, it stays in the tray.
+            Application.Run(new TrayController(settings, openEditor: mode == LaunchMode.Normal));
         }
 
         // The lock has to be held for the whole run, so it must still be

@@ -16,6 +16,11 @@ public class SettingsForm : Form
     private readonly CheckBox _spellCheck;
     private readonly CheckBox _diagnostics;
     private readonly CheckBox _realWords;
+    private readonly CheckBox _startWithWindows;
+
+    // What Windows was set to when the window opened, so Save only touches
+    // the setting when the box was actually changed.
+    private readonly bool _startedWithWindows;
     private readonly NumericUpDown _suggestionCount;
 
     public SettingsForm(AppSettings settings)
@@ -47,6 +52,14 @@ public class SettingsForm : Form
             "Fix mixed-up words, like form for from",
             "Only when the words either side make it clear. Works in other apps too.",
             _working.FixRealWords);
+
+        // Read from Windows itself, not from settings.txt. See
+        // StartupRegistration for why the two are never copies of each other.
+        _startedWithWindows = StartupRegistration.IsEnabled;
+        _startWithWindows = Check(
+            "Start SmartKeyboard with Windows",
+            "Starts quietly in the tray when you sign in, so it is always ready.",
+            _startedWithWindows);
 
         _systemWideAutocorrect = Check(
             "Fix typos in other apps too",
@@ -122,6 +135,7 @@ public class SettingsForm : Form
 
         layout.Controls.Add(SectionTitle("System Wide Mode"));
         layout.Controls.Add(_systemWideAutocorrect);
+        layout.Controls.Add(_startWithWindows);
         layout.Controls.Add(_diagnostics);
 
         foreach (Control control in layout.Controls)
@@ -218,6 +232,19 @@ public class SettingsForm : Form
         save.Click += (_, _) =>
         {
             ReadValues();
+
+            // Applied here, because it is a Windows setting rather than one
+            // of ours, so there is nothing in Result for the caller to copy.
+            if (_startWithWindows.Checked != _startedWithWindows
+                && !StartupRegistration.Set(_startWithWindows.Checked))
+            {
+                MessageBox.Show(
+                    "Windows would not let the start up setting be changed.",
+                    "SmartKeyboard",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+
             DialogResult = DialogResult.OK;
             Close();
         };

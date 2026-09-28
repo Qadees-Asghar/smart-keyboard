@@ -51,27 +51,48 @@ tell a text box from the rest of the page. Chromium reports no caret and gives
 one window class for everything, so a stray letter pressed in a browser with
 no text box focused can still bring the box up.
 
-## Running it
+## Installing it
 
 You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Windows.
+
+Double click **`install.cmd`**. It builds SmartKeyboard into
+`D:\tools\SmartKeyboard`, puts a **SmartKeyboard icon on the desktop and in
+the Start menu**, sets it to **start with Windows**, and starts it. To install
+somewhere else, run `install.cmd "E:\Apps\SmartKeyboard"`.
+
+- **Double click the desktop icon** to open the SmartKeyboard window. It
+  carries on working in other apps from the tray after the window is closed.
+  Clicking the icon while it is already running brings the window back.
+- **Start with Windows** starts it quietly in the tray when you sign in. Turn
+  it on or off from the tray menu or from Settings.
+- **To update**, run `install.cmd` again. It closes the running copy first,
+  letting it save what it learned, and it keeps your Start with Windows choice.
+- **To remove it**, run `uninstall.cmd`. It takes away the program, the icons
+  and starting with Windows.
+
+Your words, settings and everything SmartKeyboard learned live in
+`%APPDATA%\SmartKeyboard`, never in the install folder, so updating or
+uninstalling never touches them.
+
+## Running it while working on the code
 
 Double click **`run.cmd`**, or from this folder:
 
 ```
 dotnet build -c Release
-start src\SmartKeyboard.App\bin\Release\net10.0-windows\SmartKeyboard.App.exe
+start src\SmartKeyboard.App\bin\Release\net10.0-windows\SmartKeyboard.App.exe --background
 ```
 
-There is no ordinary window. SmartKeyboard lives in the **tray, by the
-clock**. The icon appears straight away and says "Loading dictionary..." for
+Started this way there is no window. SmartKeyboard lives in the **tray, by
+the clock**. The icon appears straight away and says "Loading dictionary..." for
 a moment while it reads the word list. Right click it for the editor,
 settings and exit.
 
 **Only one copy ever runs.** Start it again and the new one closes itself and
-makes the running one flash a note instead. `run.cmd` goes further and closes
-the running copy before it builds, because Windows locks the program file
-while it runs, so building on top of a running copy would fail and leave you
-using the old one without saying so.
+asks the running one to open its window instead. `run.cmd` goes further and
+closes the running copy before it builds, asking it to save first, because
+Windows locks the program file while it runs, so building on top of a running
+copy would fail and leave you using the old one without saying so.
 
 Use `start`, not `dotnet run`. With `dotnet run` the program belongs to that
 terminal and closing it closes SmartKeyboard.

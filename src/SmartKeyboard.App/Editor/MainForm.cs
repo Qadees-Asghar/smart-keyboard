@@ -38,6 +38,7 @@ public class MainForm : Form
         _services = services;
 
         Text = "SmartKeyboard";
+        Icon = LoadAppIcon();
         Width = 900;
         Height = 600;
         StartPosition = FormStartPosition.CenterScreen;
@@ -786,5 +787,20 @@ public class MainForm : Form
     {
         _services.Learning.Save();
         base.OnFormClosing(e);
+    }
+
+    // The icon built into the exe, so the title bar and the taskbar button
+    // match the desktop shortcut. Null leaves the Windows default in place,
+    // which is only a cosmetic loss. Time O(1).
+    private static Icon? LoadAppIcon()
+    {
+        try
+        {
+            return Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 }

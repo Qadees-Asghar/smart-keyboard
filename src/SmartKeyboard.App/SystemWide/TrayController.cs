@@ -24,6 +24,17 @@ public class TrayController : Form
     private readonly ToolStripMenuItem _autocorrectItem;
     private readonly ToolStripMenuItem _editorItem;
     private readonly ToolStripMenuItem _settingsItem;
+    private readonly ToolStripMenuItem _startupItem;
+
+    // True when the editor was asked for before the dictionary had loaded,
+    // by starting from the desktop icon or by clicking it again. It opens as
+    // soon as there is something to show, rather than the click being lost.
+    private bool _editorWanted;
+
+    // Listen for a second copy asking this one to show itself, and for the
+    // scripts asking it to save and close.
+    private InstanceSignal? _openRequests;
+    private InstanceSignal? _exitRequests;
 
     // Null until the dictionary has finished loading in the background.
     // Everything that needs it checks first, because the icon is deliberately
@@ -33,9 +44,12 @@ public class TrayController : Form
     private SystemWideController? _controller;
     private MainForm? _editor;
 
-    public TrayController(AppSettings settings)
+    // openEditor is true when a person started the app, from the desktop
+    // icon or the Start menu, and false when Windows started it at sign in.
+    public TrayController(AppSettings settings, bool openEditor = false)
     {
         _settings = settings;
+        _editorWanted = openEditor;
 
         // Never shown. Windows still needs it to exist to deliver the hotkey.
         FormBorderStyle = FormBorderStyle.None;
@@ -69,6 +83,12 @@ public class TrayController : Form
         _pauseItem.Enabled = false;
         _autocorrectItem.Enabled = false;
 
+        // Works before the dictionary is loaded, because it only touches the
+        // Windows setting. Its tick is read from Windows each time the menu
+        // opens, so it is right even if Settings or install.cmd changed it.
+        _startupItem = new ToolStripMenuItem("Start with Windows") { CheckOnClick = true };
+        _startupItem.Click += (_, _) => ChangeStartup(_startupItem.Checked);
+
         _editorItem = new ToolStripMenuItem("Open Editor") { Enabled = false };
         _editorItem.Click += (_, _) => ShowEditor();
 
@@ -89,11 +109,14 @@ public class TrayController : Form
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(_pauseItem);
         _menu.Items.Add(_autocorrectItem);
+        _menu.Items.Add(_startupItem);
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(_editorItem);
         _menu.Items.Add(_settingsItem);
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(exit);
+
+        _menu.Opening += (_, _) => _startupItem.Checked = StartupRegistration.IsEnabled;
 
         _tray = new NotifyIcon
         {
@@ -125,6 +148,23 @@ public class TrayController : Form
 
         UpdateMenu();
         StartLoading();
+
+        // Now that there is a handle to hand work back to.
+        _openRequests = InstanceSignal.Listen(InstanceSignal.OpenRequested, () => OnUiThread(OnOpenRequested));
+        _exitRequests = InstanceSignal.Listen(InstanceSignal.ExitRequested, () => OnUiThread(ExitProgram));
+    }
+
+    // Hands work from a thread pool thread to this one. Time O(1).
+    private void OnUiThread(Action work)
+    {
+        try
+        {
+            BeginInvoke(work);
+        }
+        catch (InvalidOperationException)
+        {
+            // Closing down.
+        }
     }
 
     // Reads the dictionary away from the UI thread, then comes back to it.
@@ -170,6 +210,12 @@ public class TrayController : Form
 
         StartSystemWide();
         UpdateMenu();
+
+        // Started from the desktop icon, or clicked again while loading.
+        if (_editorWanted)
+        {
+            ShowEditor();
+        }
     }
 
     // Starts watching the keyboard. Time O(1).
@@ -210,11 +256,27 @@ public class TrayController : Form
 
         if (message.Msg == (int)NativeMethods.AlreadyRunningMessage)
         {
-            ShowAlreadyRunning();
+            OnOpenRequested();
             return;
         }
 
         base.WndProc(ref message);
+    }
+
+    // Someone clicked the icon while this copy was running. They want the
+    // app, so bring the window up, the way any app does. While still loading,
+    // say so, and open it once loading is done. UI thread only. Time O(1).
+    private void OnOpenRequested()
+    {
+        if (_services is null)
+        {
+            _editorWanted = true;
+            ShowAlreadyRunning();
+        }
+        else
+        {
+            ShowEditor();
+        }
     }
 
     // Someone started SmartKeyboard while this copy was already running. The
@@ -227,7 +289,7 @@ public class TrayController : Form
             4000,
             "SmartKeyboard is already running",
             _services is null
-                ? "It is still loading the dictionary. This icon is it."
+                ? "It is still loading the dictionary. The window opens in a moment."
                 : "This icon down by the clock is it. Right click for the menu.",
             ToolTipIcon.Info);
     }
@@ -280,9 +342,13 @@ public class TrayController : Form
     {
         if (_services is null)
         {
-            // Still loading. The editor has nothing to show without words.
+            // Still loading. The editor has nothing to show without words,
+            // so it opens as soon as they are in.
+            _editorWanted = true;
             return;
         }
+
+        _editorWanted = false;
 
         if (_editor is null || _editor.IsDisposed)
         {
@@ -296,6 +362,23 @@ public class TrayController : Form
             _editor.BringToFront();
             _editor.Activate();
         }
+    }
+
+    // Turns Start with Windows on or off from the menu, and puts the tick
+    // back with a note if Windows would not allow it. Time O(1).
+    private void ChangeStartup(bool enabled)
+    {
+        if (StartupRegistration.Set(enabled))
+        {
+            return;
+        }
+
+        _startupItem.Checked = StartupRegistration.IsEnabled;
+        _tray.ShowBalloonTip(
+            5000,
+            "SmartKeyboard",
+            "Windows would not let the start up setting be changed.",
+            ToolTipIcon.Warning);
     }
 
     // Time O(1).
@@ -373,6 +456,8 @@ public class TrayController : Form
         if (disposing)
         {
             NativeMethods.UnregisterHotKey(Handle, HotkeyId);
+            _openRequests?.Dispose();
+            _exitRequests?.Dispose();
             _controller?.Dispose();
             _tray.Dispose();
             _menu.Dispose();

@@ -12,27 +12,7 @@ cd /d "%~dp0"
 set "EXE=SmartKeyboard.App.exe"
 set "OUT=src\SmartKeyboard.App\bin\Release\net10.0-windows"
 
-tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul
-if errorlevel 1 goto build
-
-echo Closing the copy that is already running...
-taskkill /IM "%EXE%" >nul 2>&1
-
-set TRIES=0
-:wait
-tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul
-if errorlevel 1 goto build
-set /a TRIES+=1
-if %TRIES% geq 10 goto force
-ping -n 2 127.0.0.1 >nul
-goto wait
-
-:force
-rem It did not go quietly, so insist. Anything learned was already saved when
-rem the close was asked for.
-echo   Taking longer than expected, closing it the hard way...
-taskkill /F /IM "%EXE%" >nul 2>&1
-ping -n 3 127.0.0.1 >nul
+call "%~dp0tools\close_running.cmd"
 
 :build
 echo Building...
@@ -45,7 +25,9 @@ if errorlevel 1 (
 )
 
 echo Starting SmartKeyboard...
-start "" "%OUT%\%EXE%"
+rem --background keeps it in the tray, as it always did from here. Started
+rem from the desktop icon it opens the editor window as well.
+start "" "%OUT%\%EXE%" --background
 
 echo.
 echo SmartKeyboard is running in the tray, by the clock.
