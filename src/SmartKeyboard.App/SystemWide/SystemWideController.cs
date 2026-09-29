@@ -222,6 +222,13 @@ public class SystemWideController : IDisposable
     {
         if (IsQuiet())
         {
+            // A box left up from the app before, say after switching to the
+            // editor with Alt+Tab, would sit on top of the editor's own.
+            if (_popupShowing)
+            {
+                HidePopup();
+            }
+
             return;
         }
 
@@ -706,13 +713,22 @@ public class SystemWideController : IDisposable
     }
 
     // Hands the words to the UI thread, which is the only one allowed to
-    // touch the popup window. Time O(1).
+    // touch the popup window.
+    //
+    // The caret is looked for here, first, on the worker thread that did the
+    // lookup. Finding it can mean asking the other app through UI Automation,
+    // and the UI thread must never sit waiting on another program.
+    // Time O(1), plus the capped caret question.
     private void ShowOnUiThread(SuggestionSet set)
     {
         if (_uiThread.IsDisposed || !_uiThread.IsHandleCreated)
         {
             return;
         }
+
+        CaretLocator.CaretPosition caret = set.Words.Length == 0
+            ? default
+            : CaretLocator.Find();
 
         try
         {
@@ -728,7 +744,7 @@ public class SystemWideController : IDisposable
                     return;
                 }
 
-                _popup.ShowWords(set.Words, GetPopupPosition(), 0);
+                _popup.ShowWords(set.Words, GetPopupPosition(caret), 0);
                 _popupShowing = true;
             });
         }
@@ -764,24 +780,23 @@ public class SystemWideController : IDisposable
     //
     // Three answers, best first.
     //
-    // 1. The caret, when the app reports one. That is exact, and it moves as
-    //    the user types. Notepad, Word and most desktop programs do this.
+    // 1. The caret, found by CaretLocator. Exact, and it moves as the user
+    //    types. Older desktop programs report it to Windows directly;
+    //    browsers, Electron apps and the Windows 11 Notepad report nothing
+    //    that way, so they are asked through UI Automation for the box of
+    //    the character next to the caret instead.
     //
-    // 2. Where the user last clicked. Browsers and Electron apps report no
-    //    caret at all, and asking Windows harder does not help: their caret
-    //    object answers with zeroes and accessibility hands back the whole
-    //    window. But clicking into the box is how the user got there, so the
-    //    click is near the text. It only changes when they click again, so
-    //    the popup holds still while they type.
+    // 2. Where the user last clicked, for an app that answers neither. This
+    //    used to be the answer for every browser, and it was the bug where
+    //    the popup sat at the click while the words went in further along
+    //    the line. It is only a guess, and now only a last resort.
     //
     // 3. The mouse, only until the first click is seen. Held still for the
     //    rest of the word, because a popup chasing the pointer around is
     //    worse than one slightly out of place.
     // Time O(1).
-    private Point GetPopupPosition()
+    private Point GetPopupPosition(CaretLocator.CaretPosition caret)
     {
-        CaretLocator.CaretPosition caret = CaretLocator.Find();
-
         if (caret.IsRealCaret)
         {
             _frozenAnchor = null;
@@ -1045,9 +1060,27 @@ public class SystemWideController : IDisposable
     // reason. Nothing is watched, nothing is suggested, and no key is
     // swallowed, so the app in front behaves exactly as if we were not here.
     // Time O(1).
+    //
+    // SmartKeyboard's own windows count too. The editor has its own
+    // suggestions and its own autocorrect, so watching it from here as well
+    // put a second popup on top of the editor's and could fix a word twice.
     private bool IsQuiet()
     {
-        return _pausedForPrivacy || _inCodeWindow;
+        return _pausedForPrivacy || _inCodeWindow || IsOwnWindowInFront();
+    }
+
+    // True when the window in front belongs to this program: the editor,
+    // settings, or the dictionary. Time O(1), two cheap Windows calls.
+    private static bool IsOwnWindowInFront()
+    {
+        IntPtr window = NativeMethods.GetForegroundWindow();
+        if (window == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        NativeMethods.GetWindowThreadProcessId(window, out uint processId);
+        return processId == (uint)Environment.ProcessId;
     }
 
     // Takes the box away once the user has stopped typing.

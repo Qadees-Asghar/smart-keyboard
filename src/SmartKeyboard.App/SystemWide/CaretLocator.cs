@@ -6,13 +6,16 @@ namespace SmartKeyboard.App.SystemWide;
 /// Finds where the text cursor is on screen, so the popup can appear under it.
 ///
 /// Windows will tell you through GetGUIThreadInfo, but only if the app bothers
-/// to report a caret. Plain Windows controls do, which covers Notepad, Word
-/// and most desktop programs. Browsers and Electron apps draw their own caret
-/// and usually report nothing.
+/// to report a caret. Plain Windows controls do, which covers Word and most
+/// older desktop programs. Browsers, Electron apps and the Windows 11 Notepad
+/// draw their own caret and report nothing, so for those the app is asked
+/// through UI Automation where the characters around the caret are.
 ///
-/// So this is written to fail politely: when the caret cannot be found, it
-/// says so, and the popup appears near the mouse pointer instead. That is not
-/// perfect, but it is far better than a popup in the corner of the screen.
+/// Both of those are questions to another program, so Find is never called
+/// on the UI or keyboard hook thread. And it is written to fail politely:
+/// when the caret cannot be found, it says so, and the caller falls back to
+/// where the user last clicked. That is not perfect, but it is far better
+/// than a popup in the corner of the screen.
 /// </summary>
 public static class CaretLocator
 {
@@ -39,7 +42,8 @@ public static class CaretLocator
     }
 
     // Finds the caret in whichever app is in front.
-    // Time O(1), it is a handful of Windows calls.
+    // Time O(1), a handful of Windows calls, plus at most one UI Automation
+    // question capped at CaretTextReader.TimeoutMs.
     public static CaretPosition Find()
     {
         try
@@ -47,6 +51,15 @@ public static class CaretLocator
             if (TryGetCaret(out Point caret))
             {
                 return new CaretPosition(caret, isRealCaret: true);
+            }
+
+            if (CaretTextReader.ReadCaretBox() is SmartKeyboard.Core.Engine.ScreenBox box)
+            {
+                var below = new Point(
+                    (int)Math.Round(box.Left),
+                    (int)Math.Round(box.Bottom) + DropBelowCaret);
+
+                return new CaretPosition(below, isRealCaret: true);
             }
         }
         catch (Exception)
