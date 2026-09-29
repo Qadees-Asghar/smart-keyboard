@@ -28,12 +28,15 @@ public class AutocorrectBenchmarkTests
     // Before the previous word was used: 151 right, 12 wrong, 7 missed.
     // With it: 155 right, 6 wrong, 9 missed. Five of the six left are names
     // and loanwords at the start of a sentence, where there is no context.
+    // With the 97,856 word dictionary: 155 right, 2 wrong, 9 missed. "json",
+    // "yaar" and "bhai" are words now, and "biryani" is no longer turned
+    // into "bryan", so all four are left alone.
 
     /// <summary>At least this many typos must come out right.</summary>
     private const int MinFixedRight = 155;
 
     /// <summary>At most this many cases may be changed into the wrong word.</summary>
-    private const int MaxFixedWrong = 6;
+    private const int MaxFixedWrong = 2;
 
     private readonly RealDictionary _dictionary;
     private readonly ITestOutputHelper _output;

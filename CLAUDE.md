@@ -18,6 +18,8 @@
   - Windows Sandbox has no Notepad (it is a Store app), so the test compiles a small WPF `TestPad.exe` to type into.
   - Never use a PowerShell-hosted window as the target. SmartKeyboard treats `powershell` as a code window and stays quiet.
   - Never use a WinForms (.NET Framework) text box either. UI Automation sees it as a bare Pane with no TextPattern, so the first-word check can't read it. That is also a real limit: in such apps the first word after a click is skipped, safely.
+  - Don't check for SmartKeyboard's windows with UI Automation after the typing cases. On 2026-09-29 `RootElement.FindAll` stopped listing them at all, for v1.0.0 too, while `Process.MainWindowTitle` showed the editor open. The test polls `MainWindowTitle` instead.
+  - `dist` keeps older zips; the Sandbox test takes the newest by time, not the first by name.
   - Run `.cmd` files through `Start-Process` with output redirected to a file. Windows PowerShell 5.1 mangles quoted paths passed to `cmd /c`, and a piped output stays open as long as the SmartKeyboard the installer started.
 
 ## Testing in real apps (System Wide Mode)

@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- The release version. tools\make_release.cmd names the zip after it. -->
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <!-- Drawn by tools\make_icon.ps1. Shown on the exe, the desktop shortcut
          and the taskbar. -->
     <ApplicationIcon>Assets\SmartKeyboard.ico</ApplicationIcon>

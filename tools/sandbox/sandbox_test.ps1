@@ -103,7 +103,10 @@ try {
     Check "no .NET on this PC" (-not $dotnetOnPath -and -not $dotnetFolder) "dotnet on PATH: $dotnetOnPath, Program Files\dotnet: $dotnetFolder"
 
     # 2. Extract the zip and install, the way a person would.
-    $zip = Get-ChildItem "C:\sk-dist\SmartKeyboard-*-win-x64.zip" | Select-Object -First 1
+    # The newest zip: dist keeps older versions, and taking the first by name
+    # would quietly test 1.0.0 instead of the release being made.
+    $zip = Get-ChildItem "C:\sk-dist\SmartKeyboard-*-win-x64.zip" |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
     Check "release zip found" ($null -ne $zip) "$($zip.Name)"
     $extract = Join-Path $env:USERPROFILE "Downloads\sk"
     Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
@@ -210,12 +213,25 @@ public static class TestPad {
     }
 
     # 6. The desktop icon opens the window, and never a second copy.
+    #
+    # The window is found through the process's main window, not UI
+    # Automation. After the typing cases above, UI Automation in this test
+    # stopped listing SmartKeyboard's windows at all, although the editor was
+    # plainly open: MainWindowTitle said "SmartKeyboard" while FindAll came
+    # back empty. It is polled, because the icon starts a second copy that
+    # has to unpack itself before it can ask the first copy to open.
     $desktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) 'SmartKeyboard.lnk'
     Start-Process $desktopLink
-    Start-Sleep -Seconds 4
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $title = ""
+    while ($clock.Elapsed.TotalSeconds -lt 15 -and $title -ne "SmartKeyboard") {
+        Start-Sleep -Milliseconds 250
+        $copies = @(Get-Process SmartKeyboard.App -ErrorAction SilentlyContinue)
+        $title = if ($copies.Count -gt 0) { $copies[0].MainWindowTitle } else { "" }
+    }
+    Check "desktop icon opens the window" ($title -eq "SmartKeyboard") ("after {0:N1} s, main window '{1}'" -f $clock.Elapsed.TotalSeconds, $title)
+    Start-Sleep -Seconds 2
     $copies = @(Get-Process SmartKeyboard.App -ErrorAction SilentlyContinue)
-    $names = if ($copies.Count -gt 0) { Get-WindowNames $copies[0].Id } else { @() }
-    Check "desktop icon opens the window" ($names -contains "SmartKeyboard") ("windows: " + ($names -join ', '))
     Check "still one copy running" ($copies.Count -eq 1) ("copies: " + $copies.Count)
 
     # 7. The uninstaller cleans up after itself.
