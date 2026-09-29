@@ -1,0 +1,185 @@
+# Software engineering and computing words, and the names of popular tools.
+#
+# generate_dictionary.py reads this file. One word per line, lower case,
+# letters and apostrophes only: the app splits words on anything else, so
+# "html5" or "c++" could never be typed as one word anyway. Lines starting
+# with # are comments.
+#
+# Each word gets a modest count (TECH_COUNT in the generator), or its web
+# count when that is higher, so these are offered and never marked as
+# mistakes, but never outrank ordinary English.
+
+# Programming languages and runtimes
+python pythonic java javascript typescript kotlin swift golang rust rustacean
+ruby php perl scala haskell erlang elixir clojure lisp scheme prolog fortran
+cobol pascal delphi matlab julia dart lua groovy bash powershell zsh fish
+assembly verilog vhdl solidity objective csharp fsharp vbnet webassembly wasm
+nodejs deno bun jvm jre jdk clr dotnet mono graalvm cpython pypy jython
+
+# Front end
+html css sass scss less tailwind tailwindcss bootstrap jquery react reactjs
+redux angular angularjs vuejs vuex pinia svelte sveltekit nextjs nuxt nuxtjs
+remix astro gatsby ember backbone webpack vite rollup parcel esbuild babel
+eslint prettier stylelint storybook jsx tsx dom shadow shadcn mui chakra
+figma sketch zeplin invision framer webflow wordpress drupal joomla shopify
+wix squarespace ajax axios fetch graphql apollo relay htmx alpine lit
+
+# Back end and frameworks
+express expressjs nestjs fastify koa django flask fastapi pyramid tornado
+rails laravel symfony codeigniter spring springboot hibernate struts quarkus
+micronaut aspnet blazor razor xamarin maui unity godot unreal flutter ionic
+cordova electron tauri qt gtk wxwidgets tkinter pygame opengl vulkan directx
+metal webgl threejs babylon phaser
+
+# Mobile
+android ios ipados macos watchos tvos xcode swiftui uikit cocoapods gradle
+jetpack compose kotlinx retrofit firebase expo apk ipa testflight playstore
+appstore
+
+# Data, databases and storage
+sql nosql mysql postgres postgresql sqlite mariadb oracle mssql mongodb mongo
+mongoose redis memcached cassandra couchdb couchbase dynamodb firestore
+neo4j elasticsearch opensearch solr kibana logstash influxdb timescale
+clickhouse snowflake bigquery redshift databricks hadoop hdfs hive spark
+pyspark kafka rabbitmq zeromq nats pulsar flink airflow dbt etl elt olap oltp
+prisma sequelize typeorm sqlalchemy orm odbc jdbc schema schemas
+migration migrations sharding shard shards replica replicas upsert upserts
+datastore datastores warehouse lakehouse
+
+# Data science and AI
+numpy pandas scipy matplotlib seaborn plotly jupyter notebook notebooks
+sklearn scikit tensorflow keras pytorch torch huggingface transformers
+opencv nltk spacy langchain llamaindex openai anthropic claude chatgpt gpt
+gemini copilot llama mistral ollama midjourney dalle
+llm llms nlp embeddings embedding tokenizer tokenizers tokenization
+finetune finetuning finetuned inference dataset datasets dataframe dataframes
+regression classifier classifiers clustering overfitting underfitting
+hyperparameter hyperparameters backpropagation perceptron neural
+chatbot chatbots rag pinecone chroma weaviate qdrant
+
+# Cloud, DevOps and infrastructure
+aws azure gcp heroku netlify vercel render railway digitalocean linode
+cloudflare akamai fastly lambda serverless kubernetes kubectl helm minikube
+docker dockerfile dockerfiles dockerized dockerize compose podman containerd
+container containers containerized containerization microservice microservices
+terraform ansible puppet chef vagrant packer pulumi cloudformation
+jenkins circleci travis gitlab github bitbucket gitea teamcity bamboo
+argocd spinnaker prometheus grafana datadog newrelic splunk sentry
+pagerduty nagios zabbix nginx apache tomcat iis haproxy traefik envoy istio
+consul vault etcd zookeeper openshift rancher devops devsecops sre gitops
+cicd pipeline pipelines deploy deploys deployed deploying deployment
+deployments rollback rollbacks rollout rollouts hotfix hotfixes uptime
+downtime failover autoscaling autoscale cdn vpc vpn subnet
+subnets iam sso ldap oauth openid saml jwt kerberos
+
+# Operating systems and shells
+linux ubuntu debian fedora centos redhat rhel archlinux manjaro kali mint
+alpine freebsd openbsd unix posix wsl chromeos windows sysadmin sudo chmod
+chown grep sed awk curl wget ssh scp rsync cron crontab systemd daemon daemons
+kernel kernels bootloader bios uefi grub shell shells terminal terminals
+cmd stdin stdout stderr filesystem filesystems symlink symlinks
+
+# Editors, IDEs and developer tools
+vscode vim neovim nvim emacs nano intellij pycharm webstorm phpstorm rider
+clion goland rubymine android studio eclipse netbeans codeblocks
+sublime atom notepad jupyterlab colab replit codepen jsfiddle codesandbox
+postman insomnia swagger openapi wireshark fiddler burp nmap metasploit
+npm npx yarn pnpm pip pipenv poetry conda anaconda virtualenv venv nuget
+maven cargo composer gem gems bundler homebrew brew chocolatey winget apt
+makefile makefiles cmake ninja msbuild bazel lerna turborepo monorepo monorepos
+linter linters linting debugger debuggers profiler profilers valgrind gdb lldb
+
+# Version control and collaboration
+git svn mercurial repo repos repository repositories commit commits committed
+committing push pushed pull pulls pulled clone cloned cloning fork forked
+forking branch branches branching merge merged merging rebase rebased
+rebasing cherrypick stash stashed checkout diff diffs gitignore readme
+changelog changelogs upstream downstream codebase codebases
+jira confluence trello asana notion clickup monday basecamp slack discord
+teams zoom skype webex miro lucidchart drawio visio mural loom calendly
+gmail outlook onedrive dropbox gdrive sharepoint
+
+# Testing and quality
+junit nunit xunit mstest pytest unittest jest mocha chai jasmine karma
+cypress playwright selenium puppeteer webdriver appium cucumber gherkin
+testng mockito moq sinon enzyme vitest sonarqube sonarcloud coverage codecov
+tdd bdd qa uat smoke regression stubs stub mock mocks mocking mocked fixture
+fixtures testcase testcases testbed testable testability flaky refactor
+refactors refactored refactoring lint
+
+# Software engineering process and design
+sdlc agile scrum kanban waterfall lean xp safe sprint sprints backlog backlogs
+standup standups retro retros retrospective retrospectives
+stakeholder stakeholders requirement requirements srs brd prd
+storyboard storyboards wireframe wireframes wireframing
+mockup mockups prototype prototypes prototyping mvp poc roadmap roadmaps
+milestone milestones deliverable deliverables estimation estimations
+gantt pert wbs raci kpi kpis okr okrs sla slas slo slos
+uml erd dfd flowchart flowcharts pseudocode pseudo sequence activity
+architecture architectures architectural microkernel monolith monolithic
+mvc mvvm mvp soa ddd cqrs solid dry kiss yagni oop oops encapsulation
+abstraction inheritance polymorphism overloading overriding interface
+interfaces singleton factory observer decorator adapter facade proxy
+middleware middlewares scalability maintainability reusability portability
+usability reliability availability interoperability extensibility
+modularity cohesion coupling refactoring technical debt codebase
+versioning semver changelog release releases prerelease hotfix patch patches
+documentation docs docstring docstrings javadoc doxygen wiki wikis
+
+# Programming and computing terms
+api apis sdk sdks ide ides cli clis gui guis ui ux frontend frontends
+backend backends fullstack stack stacks runtime runtimes compiler compilers
+interpreter interpreters transpiler transpilers bytecode opcode opcodes
+syntax semantics lexer lexers parser parsers ast tokens token tokenize
+boolean booleans bool int ints integer float floats double char chars
+string strings struct structs enum enums tuple tuples array arrays arraylist
+hashmap hashmaps hashset hashtable dict dicts linkedlist queue queues deque
+stack heap heaps trie tries bst avl graph graphs node nodes vertex vertices
+recursion recursive iterative iteration iterator iterators generator
+generators lambda lambdas closure closures callback callbacks promise
+promises async await asynchronous synchronous concurrency parallelism
+multithreading multithreaded thread threads mutex mutexes semaphore
+semaphores deadlock deadlocks coroutine coroutines goroutine
+goroutines namespace namespaces module modules package packages
+library libraries framework frameworks dependency dependencies plugin plugins
+addon addons extension extensions config configs configuration dotenv env
+localhost endpoint endpoints webhook webhooks websocket websockets
+http https tcp udp ip dns dhcp smtp imap pop ftp sftp ssl tls
+rest restful soap grpc rpc protobuf json yaml toml xml csv tsv markdown
+regex regexes regexp utf ascii unicode base hex hexadecimal binary bitwise
+bitmask bitmap bytes byte kilobyte megabyte gigabyte terabyte kb mb gb tb
+cpu cpus gpu gpus ram rom ssd ssds hdd nvme bios firmware
+cache caches cached caching cookie cookies session sessions
+frontend backend server servers client clients
+latency throughput bandwidth ping localhost proxy proxies firewall firewalls
+encryption decryption encrypt decrypt encrypted hashing hashed bcrypt sha md
+authentication authorization auth login logins logout signup signin
+username usernames password passwords passcode captcha
+malware ransomware phishing spyware adware botnet ddos exploit exploits
+vulnerability vulnerabilities cve pentest pentesting cybersecurity infosec
+bug bugs buggy debug debugged debugging bugfix bugfixes crash crashes
+crashed exception exceptions stacktrace traceback segfault null nullable
+undefined nan runtime timeout timeouts overflow underflow leak leaks
+todo todos fixme boilerplate snippet snippets gist gists
+opensource freeware shareware payload payloads metadata
+algorithm algorithms complexity sorting quicksort mergesort heapsort
+hashing dijkstra bfs dfs dynamic greedy backtracking
+memoization tabulation knapsack levenshtein
+
+# Companies, products and platforms people type every day
+google microsoft apple amazon meta facebook instagram whatsapp messenger
+twitter tiktok snapchat youtube linkedin reddit quora pinterest tumblr
+telegram signal viber netflix spotify hulu disney twitch kick
+uber careem foodpanda daraz airbnb paypal stripe payoneer jazzcash
+easypaisa ebay alibaba aliexpress temu shein etsy
+intel amd nvidia qualcomm arm samsung xiaomi huawei oppo vivo realme
+oneplus nokia motorola lenovo dell asus acer msi razer logitech corsair
+hp ibm cisco oracle salesforce sap adobe photoshop illustrator premiere
+lightroom indesign acrobat canva capcut filmora blender
+autocad solidworks revit maya cinema coreldraw gimp inkscape krita obs
+chrome chromium firefox safari edge opera brave tor
+iphone ipad ipod macbook imac airpods pixel galaxy playstation
+xbox nintendo switch steam epic roblox minecraft fortnite valorant pubg
+leetcode hackerrank codeforces codechef kaggle geeksforgeeks stackoverflow
+w3schools udemy coursera edx khan duolingo medium substack devto hashnode
+wikipedia gpt openai deepmind anthropic

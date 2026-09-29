@@ -15,6 +15,13 @@ Where the data comes from, all free to use:
 4. Project Gutenberg books. Used for one thing only: neither web list keeps
    apostrophes, so without the books "don't" and "it's" would be missing and
    the spell checker would mark them as mistakes.
+5. The Hunspell en_US dictionary, the one LibreOffice and Firefox spell check
+   with. words_alpha is an old list: it knows "quandary" but not "linux",
+   "voicemail" or "signage", and it has no names at all. A word from the web
+   list that Hunspell also knows is a real word people type, so it gets in.
+6. tools/wordlists/tech.txt and slang.txt, written by hand: the names of
+   programming tools and software engineering terms, and chat and gaming
+   slang. Most of these are too new or too informal for any dictionary.
 
 Run it with:  python tools/generate_dictionary.py
 You only need to run it again if you want to rebuild the data files.
@@ -33,6 +40,10 @@ CACHE_DIR = os.path.join(HERE, ".cache")
 WEB_WORDS = "https://norvig.com/ngrams/count_1w.txt"
 WEB_PAIRS = "https://norvig.com/ngrams/count_2w.txt"
 VALID_WORDS = "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
+HUNSPELL_WORDS = "https://raw.githubusercontent.com/wooorm/dictionaries/main/dictionaries/en/index.dic"
+HUNSPELL_RULES = "https://raw.githubusercontent.com/wooorm/dictionaries/main/dictionaries/en/index.aff"
+
+WORDLIST_DIR = os.path.join(HERE, "wordlists")
 
 # Wikipedia's list of common misspellings, written out for machines to read.
 # It is a curated human list, which is worth more here than any rule, because
@@ -61,7 +72,40 @@ BOOKS = {
 
 # The biggest the finished dictionary is allowed to get. The project aims at
 # around 100,000 words, which is what the speed targets were written against.
+# The hand written word lists always get in; if the total runs over, the
+# rarest web words are the ones left out.
 MAX_WORDS = 100000
+
+# Counts for the hand written lists, on the same scale as the rest of the file
+# ("the" is 200000). High enough to be suggested and never underlined, low
+# enough never to outrank ordinary English, the same idea as INFORMAL_WORDS.
+TECH_COUNT = 30
+SLANG_COUNT = 30
+
+# Words Hunspell knows but that nobody wants offered as a suggestion. Hunspell
+# marks its own slurs and swear words with a "!" flag, and those are skipped
+# too; these are the spam words of the web list that it does not mark.
+UNWANTED_WORDS = {"milf", "milfs", "viagra", "cialis", "levitra", "hentai"}
+
+# Slurs. words_alpha is a plain list of every English word, and it brought
+# these in, so SmartKeyboard would have completed them and could have chosen
+# one as a correction. They are left out whatever list they come from.
+#
+# Only words whose everyday use is the slur are here. Words that are mostly
+# something else stay: "cracker" the biscuit, "coon" the raccoon, "nip",
+# "spastic" the medical term. Swearing is not slurring, so "shit" and the
+# like stay too; people do type them.
+SLURS = {
+    "nigger", "niggers", "nigga", "niggas", "niggaz", "negress",
+    "chink", "chinks", "gook", "gooks", "spic", "spics", "kike", "kikes",
+    "wog", "wogs", "darkie", "darkies", "injun", "jap", "japs", "dago",
+    "dagos", "wop", "wops", "polack", "polacks", "kraut", "krauts",
+    "redskin", "redskins", "squaw", "honky", "honkies", "mulatto",
+    "mulattoes", "raghead", "ragheads", "towelhead", "towelheads",
+    "wetback", "wetbacks", "beaner", "beaners",
+    "fag", "fags", "faggot", "faggots", "faggy", "tranny", "trannies",
+    "retard", "retards", "retarded", "mongoloid", "mong",
+}
 
 # Web counts run into the billions and will not fit the file format, so
 # everything is scaled down until the commonest word lands near this number.
@@ -359,17 +403,22 @@ def one_edit_away(word):
             yield left + c + right                      # insert a letter
 
 
-def drop_misspellings(words):
+def drop_misspellings(words, confirmed=frozenset()):
     """
     Removes rare words that sit one typo away from a far more common word.
 
     Without this, a misspelling like "enviroment" counts as a real word, so
     the spell checker never marks it and autocorrect never fixes it.
+
+    Words in confirmed are never removed. That is the Hunspell list: this rule
+    was written for words_alpha, which carries misspellings, and on its own it
+    also threw out about five thousand real words Hunspell knows, "nicest",
+    "prying", "wording" and "modifies" among them.
     """
     dropped = []
 
     for word, count in list(words.items()):
-        if count > MISSPELLING_MAX_COUNT or len(word) < 5:
+        if count > MISSPELLING_MAX_COUNT or len(word) < 5 or word in confirmed:
             continue
 
         for neighbour in one_edit_away(word):
@@ -447,11 +496,115 @@ def contractions_from_books():
     return {w: c for w, c in words.items() if "'" in w and c >= 3}
 
 
+def parse_affix_rules(text):
+    """
+    Reads the prefix and suffix rules of a Hunspell .aff file, as
+    {flag: (is_suffix, combines_with_the_other_kind, [(strip, add, condition)])}.
+    """
+    rules = {}
+    lines = text.splitlines()
+    i = 0
+
+    while i < len(lines):
+        parts = lines[i].split()
+        if len(parts) == 4 and parts[0] in ("PFX", "SFX") and parts[2] in ("Y", "N"):
+            entries = []
+            for line in lines[i + 1:i + 1 + int(parts[3])]:
+                p = line.split()
+                strip = "" if p[2] == "0" else p[2]
+                add = "" if p[3] == "0" else p[3].split("/")[0]
+                entries.append((strip, add, p[4] if len(p) > 4 else "."))
+
+            rules[parts[1]] = (parts[0] == "SFX", parts[2] == "Y", entries)
+            i += int(parts[3]) + 1
+        else:
+            i += 1
+
+    return rules
+
+
+def expand_hunspell(word, flags, rules):
+    """Every form a Hunspell entry stands for: "linux/MS" gives linux, linuxes."""
+    forms = {word}
+    with_suffix = [word]
+
+    for flag in flags:
+        is_suffix, combines, entries = rules.get(flag, (False, False, []))
+        if not is_suffix:
+            continue
+
+        for strip, add, condition in entries:
+            if not re.search("(?:" + condition + ")$", word):
+                continue
+            if strip and not word.endswith(strip):
+                continue
+
+            form = (word[:-len(strip)] if strip else word) + add
+            forms.add(form)
+            if combines:
+                with_suffix.append(form)
+
+    for flag in flags:
+        is_suffix, combines, entries = rules.get(flag, (True, False, []))
+        if is_suffix:
+            continue
+
+        for strip, add, condition in entries:
+            for base in with_suffix if combines else [word]:
+                if re.match(condition, base):
+                    forms.add(add + (base[len(strip):] if strip else base))
+
+    return forms
+
+
+def load_hunspell_words():
+    """
+    Every word form in the Hunspell dictionary, in lower case, leaving out the
+    ones it marks as offensive.
+    """
+    rules = parse_affix_rules(download("hunspell_en_us_aff", HUNSPELL_RULES))
+    words = set()
+
+    # The first line is only the number of entries.
+    for line in download("hunspell_en_us", HUNSPELL_WORDS).splitlines()[1:]:
+        entry, _, flags = line.strip().partition("/")
+        if not entry or "!" in flags:
+            continue
+
+        for form in expand_hunspell(entry, flags, rules):
+            words.add(form.lower())
+
+    return words
+
+
+def load_wordlist(name):
+    """
+    A hand written list from tools/wordlists. Anything that could never be
+    typed as one word, or that breaks the rules for short words, is dropped.
+    """
+    words = []
+    with open(os.path.join(WORDLIST_DIR, name), encoding="utf-8") as handle:
+        for line in handle:
+            if line.lstrip().startswith("#"):
+                continue
+
+            for word in line.lower().split():
+                if (WORD_RE.fullmatch(word)
+                        and keep_word(word.replace("'", ""))
+                        and word not in words):
+                    words.append(word)
+
+    return words
+
+
 def main():
     print("Reading the word lists")
     valid = load_valid_words()
     web = load_web_counts()
     print("  %d real English words, %d words with web counts" % (len(valid), len(web)))
+
+    hunspell = load_hunspell_words()
+    print("  %d word forms from Hunspell" % len(hunspell))
 
     print("Keeping only real words, and only the commonest")
 
@@ -463,20 +616,23 @@ def main():
     kept = {}
     for word, raw in web.items():
         if (word not in valid
+                and word not in hunspell
                 and word not in MODERN_WORDS
                 and word not in INFORMAL_WORDS):
+            continue
+
+        if word in UNWANTED_WORDS or word in SLURS:
             continue
 
         count = max(1, round(raw * scale))
         if keep_word(word, count):
             kept[word] = count
 
-    ranked = sorted(kept.items(), key=lambda pair: -pair[1])[:MAX_WORDS]
-    words = dict(ranked)
+    words = kept
     print("  kept %d words" % len(words))
 
     print("Dropping misspellings that sit next to a much commoner word")
-    removed = drop_misspellings(words)
+    removed = drop_misspellings(words, hunspell)
     print("  dropped %d, %d words left" % (removed, len(words)))
 
     print("Dropping words a human list says are misspellings")
@@ -496,6 +652,30 @@ def main():
             words[word] = count
             added += 1
     print("  added %d" % added)
+
+    print("Adding the hand written tech and slang lists")
+    protected = set(INFORMAL_WORDS)
+    for name, count in (("tech.txt", TECH_COUNT), ("slang.txt", SLANG_COUNT)):
+        listed = load_wordlist(name)
+        new_words = sum(1 for word in listed if word not in words)
+        for word in listed:
+            # Never lower a count the web text already justified.
+            words[word] = max(words.get(word, 0), count)
+            protected.add(word)
+        print("  %s: %d words, %d of them new" % (name, len(listed), new_words))
+
+    # A last sweep, because the books and the hand written lists do not pass
+    # through the filter above.
+    for word in SLURS:
+        words.pop(word, None)
+
+    if len(words) > MAX_WORDS:
+        print("Trimming to %d words, leaving out the rarest web words" % MAX_WORDS)
+        rarest_first = sorted(
+            (word for word in words if word not in protected),
+            key=lambda word: (words[word], word))
+        for word in rarest_first[:len(words) - MAX_WORDS]:
+            del words[word]
 
     print("Reading the word pairs")
     pairs = [

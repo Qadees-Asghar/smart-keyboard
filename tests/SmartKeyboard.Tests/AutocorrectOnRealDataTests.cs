@@ -3,7 +3,7 @@ using SmartKeyboard.Core.Engine;
 namespace SmartKeyboard.Tests;
 
 /// <summary>
-/// Autocorrect against the real 86,000 word dictionary.
+/// Autocorrect against the real 98,000 word dictionary.
 ///
 /// A small test dictionary can make autocorrect look far better than it is.
 /// What matters in real use is the opposite question: how often does it change

@@ -135,6 +135,92 @@ public class DictionaryQualityTests
     }
 
     [Theory]
+    [InlineData("kubernetes")]
+    [InlineData("github")]
+    [InlineData("javascript")]
+    [InlineData("typescript")]
+    [InlineData("postgresql")]
+    [InlineData("docker")]
+    [InlineData("jira")]
+    [InlineData("figma")]
+    [InlineData("vscode")]
+    [InlineData("frontend")]
+    [InlineData("backend")]
+    [InlineData("refactoring")]
+    [InlineData("microservices")]
+    [InlineData("stakeholders")]
+    [InlineData("scrum")]
+    [InlineData("polymorphism")]
+    public void ToolNamesAndSoftwareEngineeringWordsAreInTheDictionary(string word)
+    {
+        // From tools/wordlists/tech.txt. No English dictionary knows most of
+        // these, so without the list they were underlined as mistakes.
+        Assert.True(_dictionary.Words.Contains(word), $"\"{word}\" is missing");
+    }
+
+    [Theory]
+    [InlineData("rizz")]
+    [InlineData("lowkey")]
+    [InlineData("bussin")]
+    [InlineData("deadass")]
+    [InlineData("ttyl")]
+    [InlineData("noob")]
+    [InlineData("respawn")]
+    [InlineData("yaar")]
+    [InlineData("inshallah")]
+    public void SlangFromTheSlangListIsInTheDictionary(string word)
+    {
+        Assert.True(_dictionary.Words.Contains(word), $"\"{word}\" is missing");
+    }
+
+    [Theory]
+    [InlineData("nicest")]
+    [InlineData("prying")]
+    [InlineData("wording")]
+    [InlineData("modifies")]
+    [InlineData("voicemail")]
+    [InlineData("signage")]
+    [InlineData("linux")]
+    public void RealWordsTheOldWordListDidNotKnowAreInTheDictionary(string word)
+    {
+        // Confirmed by Hunspell. words_alpha lacked some, and the rule about
+        // rare words next to common ones threw out the rest.
+        Assert.True(_dictionary.Words.Contains(word), $"\"{word}\" is missing");
+    }
+
+    [Theory]
+    [InlineData("milf")]
+    [InlineData("viagra")]
+    [InlineData("vue")]
+    public void SpamSlursAndShadowingWordsStayOut(string word)
+    {
+        // Hunspell knows the first two, and UNWANTED_WORDS keeps them out. "vue" was on the tech list and became the only close
+        // match for the typo "vu", so autocorrect turned "vu" into it.
+        Assert.False(_dictionary.Words.Contains(word), $"\"{word}\" should not be offered");
+    }
+
+    [Theory]
+    [InlineData("nigger")]
+    [InlineData("faggot")]
+    [InlineData("kike")]
+    [InlineData("retarded")]
+    public void SlursAreNotInTheDictionary(string word)
+    {
+        // words_alpha brought these in, so they were completed and could be
+        // picked as corrections. SLURS in generate_dictionary.py removes them.
+        Assert.False(_dictionary.Words.Contains(word), $"\"{word}\" must not be suggested");
+    }
+
+    [Theory]
+    [InlineData("camel")]
+    [InlineData("cracker")]
+    [InlineData("jungle")]
+    public void OrdinaryWordsNearTheSlurListAreKept(string word)
+    {
+        Assert.True(_dictionary.Words.Contains(word), $"\"{word}\" is missing");
+    }
+
+    [Theory]
     [InlineData("can't")]
     [InlineData("i've")]
     [InlineData("don't")]

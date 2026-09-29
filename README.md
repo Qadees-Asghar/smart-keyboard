@@ -12,10 +12,10 @@ the BK Tree and the Levenshtein distance are all written by hand. There is no
 
 ## What it does
 
-- Suggests words from a dictionary of **86,000 words** as you type
+- Suggests words from a dictionary of **98,000 words**, including programming tools, software engineering terms and chat slang, as you type
 - Ranks them by how common they are and by the word before them
 - Fixes typos the moment you press space: `teh` to `the`, `cant` to `can't`
-- Predicts the next word from **269,000 word pairs**
+- Predicts the next word from **271,000 word pairs**
 - Underlines words it does not know, with fixes on right click
 - Learns your habits, stored as counts only and never as text
 - Lets you add your own words
@@ -117,7 +117,7 @@ terminal and closing it closes SmartKeyboard.
 |-----------|----------|
 | Trie | finding every word that starts with what you typed |
 | Max Heap | pulling the best few suggestions out of the matches |
-| BK Tree | finding real words close to a typo, without checking all 86,000 |
+| BK Tree | finding real words close to a typo, without checking all 98,000 |
 | Levenshtein distance | measuring how far apart two words are |
 | Bigram index | working out which word usually comes next |
 

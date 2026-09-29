@@ -3,6 +3,7 @@
 ## Build, test, run
 - `dotnet build SmartKeyboard.sln --no-incremental` must give 0 warnings; `dotnet test SmartKeyboard.sln` must be all green.
 - The two benchmark tests (`AutocorrectBenchmarkTests`, `RealWordBenchmarkTests`) are regression guards set to the last measured numbers. When a change really improves them, update the constants and the comment that records the numbers.
+- Running `install.cmd` from a script: `Start-Process -FilePath <full path to install.cmd> -WorkingDirectory <repo> -RedirectStandardOutput <file> -NoNewWindow -PassThru`, then `WaitForExit`, with `SK_NO_PAUSE=1`. PowerShell `& .\install.cmd *> file` never returns, because the SmartKeyboard it starts inherits the output handle.
 - `run.cmd` is for development (tray only, `--background`). `install.cmd [folder]` installs or updates the real app (default `D:\tools\SmartKeyboard`). Both close a running copy through `tools\close_running.cmd`.
 - Close the app by setting the named event `SmartKeyboard.ExitRequested.v1`. `taskkill` without `/F` reports SUCCESS but never closes it, because its only window is hidden.
 
@@ -25,6 +26,11 @@
 - Before typing test text, set `learning=False` in `%APPDATA%\SmartKeyboard\settings.txt` and restart the app, then restore the file afterwards. Learning saves every typed pair, heavily weighted, and test sentences pollute the user's real data.
 - `%APPDATA%\SmartKeyboard\inject.log` (setting `diagnostics=True`) records counts only. `sent=N/N` means Windows accepted every key; wrong text after that means the app dropped or reordered them.
 
+## Dictionary data
+- `words.txt` and `bigrams.txt` are generated: edit `tools/generate_dictionary.py` or `tools/wordlists/*.txt`, then run `python tools/generate_dictionary.py`. Never hand edit the data files.
+- Sources: web counts filtered by words_alpha or Hunspell en_US, plus the hand written tech and slang lists. `SLURS` and `UNWANTED_WORDS` keep words out whatever list brings them in.
+- A new short word can become the only close match for a typo and get picked by autocorrect ("vue" turned "vu" into "vue"). Run the tests after every change to the lists.
+
 ## Rules the code depends on
 - Notepad scrambles bursts of injected keys. `TextInjector` spaces key presses `KeyGapMs` (15 ms) apart on purpose; do not go back to one big `SendInput` call. The user's own keys are kept out of the middle by `KeyHoldGate`, not by batching.
 - Anything that replaces text must be inside `Gate.Begin()` ... `finally Gate.End(ReplayHeld)`.
@@ -33,6 +39,8 @@
 - Learning writes into the live `BigramIndex`, so anything judging "is this pair normal" must subtract `LearningEngine.GetLearnedPairCount`.
 - The app project has `UseWPF=true` only for `System.Windows.Automation`, which drops the implicit `System.IO` using. It is added back in the csproj.
 - Window-message broadcasts do not reach the hidden tray window. Use `InstanceSignal` (named events) for talking between copies.
+- System Wide Mode stays quiet while one of SmartKeyboard's own windows is in front (`IsOwnWindowInFront`). The editor has its own popup and autocorrect; without this there were two popups and a word could be fixed twice.
+- The popup is placed by `CaretLocator.Find`: the Windows caret first, then UI Automation (`CaretTextReader.ReadCaretBox`, judged by Core `CaretBox`), and the last click only as a last resort. Browsers, Electron and Windows 11 Notepad need the UI Automation step. `Find` asks another program, so call it on a worker thread, never the UI or hook thread.
 
 ## Editing files
 - `.cmd` files must keep CRLF line endings (`.gitattributes` enforces it on commit).

@@ -1,0 +1,59 @@
+# Informal, internet and gaming words people type in chats.
+#
+# Read by generate_dictionary.py, the same way as tech.txt: one word per line
+# or several per line, lower case, letters and apostrophes only, # for
+# comments. Two letter words are ignored by the generator's own rules,
+# because they sit one typo away from almost every short word.
+#
+# The hand tuned counts for the commonest ones stay in INFORMAL_WORDS in the
+# generator. Everything here gets SLANG_COUNT, or its web count when higher.
+
+# Everyday chat
+gonna wanna gotta dunno gimme lemme kinda sorta outta lotta tryna finna
+betcha gotcha whatcha ain't y'all ya nope yeah yea
+yass yasss okie okay alright aight ight bruv mate dude dudes
+bestie besties bff bffs homie homies fam famo sis bro bros broski
+babe bae hun hon luv lil nah naw meh welp phew whoa woah wow
+hmm hmmm umm uhh uh ahh aww yikes oof yeet yay woohoo hooray
+lol lols lmao lmfao rofl haha hahaha hehe hihi xoxo xd
+omg omfg btw fyi idk idc idgaf imo imho tbh tbf ikr irl brb bbl gtg g2g
+ttyl ttys nvm np smh fomo yolo tldr afaik iirc asap eta rsvp ootd
+thx tysm tyvm pls plz srsly srs obvi ofc jk jfc wyd wbu hbu hru
+sup wassup wazzup hiya heya howdy cya laters peace
+
+# Gen Z and internet slang
+rizz rizzler sus slay slayed slaying lit fire goat goated based cringe
+cringey cringy vibe vibes vibing vibey lowkey highkey deadass fr frfr
+periodt period bussin drip dripped cap bet salty savage basic
+extra shook stan stans stanning simp simps simping ghost ghosted ghosting
+flex flexing flexed glow boujee bougie snatched tea spill sksksk
+yeet yeeted mid ratio ratioed delulu situationship bestie iconic slaps
+banger bangers mood moody sheesh bruh yikes woke
+clapback clout influencer influencers meme memes memed memer viral
+trending trend trendy aesthetic aesthetics unhinged ick ate ate
+sigma alpha npc npcs rent free doomscrolling doomscroll
+fanboy fangirl fandom fandoms shipper shipping otp spoiler spoilers
+binge bingewatch binged selfie selfies emoji emojis gif gifs sticker
+stickers dm dms inbox reel reels story stories livestream livestreaming
+streamer streamers vlog vlogs vlogger vloggers youtuber youtubers
+tiktoker tiktokers podcaster subscribe subscribers unsubscribe follow
+followers unfollow unfollowed repost reposted retweet retweeted
+hashtag hashtags trolling troll trolls troller catfish catfished
+clickbait photobomb photobombed humblebrag mansplain mansplaining
+hangry adulting chillax staycation frenemy frenemies bromance
+
+# Gaming
+gamer gamers gaming noob noobs newb newbie newbies pwned pwn owned
+afk gg ggwp glhf ez op nerf nerfed buff buffed meta grind grinding
+grinder clutch clutched toxic ragequit rage lag laggy lagging ping
+respawn respawned spawn spawned spawning camper camping headshot
+headshots killstreak loot lootbox noscope speedrun speedrunner
+speedrunning casual tryhard tryhards smurf smurfing carry carried
+feeder feeding teamkill leaderboard leaderboards ranked unranked
+esports esport streamer twitch discord modded mods modding
+dlc npc boss bosses quest quests grindy overpowered
+
+# Words from Pakistani chats, typed in English letters
+yaar bhai bhaijaan behen acha achaa theek chalo shukriya
+inshallah insha'allah mashallah alhamdulillah subhanallah bismillah assalam
+salaam walaikum wassalam jazakallah ameen khuda hafiz allah
